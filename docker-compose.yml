@@ -1,0 +1,56 @@
+services:
+  # ─── PostgreSQL Database ───────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: myfinance-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: myfinance
+      POSTGRES_PASSWORD: myfinance
+      POSTGRES_DB: myfinance
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myfinance"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Next.js App ──────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: myfinance-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://myfinance:myfinance@db:5432/myfinance
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ─── DB Migration + Seed (runs once then exits) ───────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: myfinance-migrate
+    command: sh -c "npx prisma migrate deploy && npx prisma db seed"
+    environment:
+      DATABASE_URL: postgresql://myfinance:myfinance@db:5432/myfinance
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  db_data:

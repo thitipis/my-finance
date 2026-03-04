@@ -1,0 +1,275 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Tier {
+  free
+  premium
+}
+
+enum Language {
+  th
+  en
+}
+
+enum FilingStatus {
+  single
+  married_no_income
+  married_separate
+  married_joint
+}
+
+enum GoalType {
+  retirement
+  emergency_fund
+  investment
+  home_car
+  education
+  custom
+}
+
+enum AuditAction {
+  create
+  update
+  delete
+}
+
+// ─── User Tables ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String?   @db.VarChar(255)
+  passwordHash String    @map("password_hash")
+  tier         Tier      @default(free)
+  language     Language  @default(th)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastLoginAt  DateTime? @map("last_login_at")
+
+  taxInputs        TaxInput[]
+  deductionEntries TaxDeductionEntry[]
+  goals            Goal[]
+  insuranceData    InsuranceData?
+  usageEvents      UsageEvent[]
+
+  @@map("users")
+}
+
+model TaxInput {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  taxYearId      String       @map("tax_year_id")
+  filingStatus   FilingStatus @default(single) @map("filing_status")
+  annualSalary   Decimal      @default(0) @map("annual_salary") @db.Decimal(15, 2)
+  bonus          Decimal      @default(0) @db.Decimal(15, 2)
+  otherIncome    Decimal      @default(0) @map("other_income") @db.Decimal(15, 2)
+  spouseIncome   Decimal      @default(0) @map("spouse_income") @db.Decimal(15, 2)
+  withheldTax    Decimal      @default(0) @map("withheld_tax") @db.Decimal(15, 2)
+  providentFund  Decimal      @default(0) @map("provident_fund") @db.Decimal(15, 2)
+  socialSecurity Decimal      @default(0) @map("social_security") @db.Decimal(15, 2)
+  numChildren    Int          @default(0) @map("num_children")
+  numParents     Int          @default(0) @map("num_parents")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear TaxYear @relation(fields: [taxYearId], references: [id])
+
+  @@unique([userId, taxYearId])
+  @@map("tax_inputs")
+}
+
+model TaxDeductionEntry {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  taxYearId       String   @map("tax_year_id")
+  deductionTypeId String   @map("deduction_type_id")
+  amount          Decimal  @default(0) @db.Decimal(15, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear       TaxYear       @relation(fields: [taxYearId], references: [id])
+  deductionType DeductionType @relation(fields: [deductionTypeId], references: [id])
+
+  @@unique([userId, taxYearId, deductionTypeId])
+  @@map("tax_deduction_entries")
+}
+
+model Goal {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  name                String    @db.VarChar(255)
+  goalType            GoalType  @map("goal_type")
+  targetAmount        Decimal   @map("target_amount") @db.Decimal(15, 2)
+  currentAmount       Decimal   @default(0) @map("current_amount") @db.Decimal(15, 2)
+  monthlyContribution Decimal   @default(0) @map("monthly_contribution") @db.Decimal(15, 2)
+  annualReturnRate    Decimal   @default(0) @map("annual_return_rate") @db.Decimal(5, 2)
+  targetDate          DateTime? @map("target_date") @db.Date
+  isActive            Boolean   @default(true) @map("is_active")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("goals")
+}
+
+model InsuranceData {
+  id                          String   @id @default(uuid())
+  userId                      String   @unique @map("user_id")
+  // Annual premiums (used for tax deduction auto-fill)
+  lifeInsurancePremium        Decimal  @default(0) @map("life_insurance_premium") @db.Decimal(15, 2)
+  healthInsurancePremium      Decimal  @default(0) @map("health_insurance_premium") @db.Decimal(15, 2)
+  parentHealthInsurancePremium Decimal @default(0) @map("parent_health_insurance_premium") @db.Decimal(15, 2)
+  annuityInsurancePremium     Decimal  @default(0) @map("annuity_insurance_premium") @db.Decimal(15, 2)
+  spouseLifeInsurancePremium  Decimal  @default(0) @map("spouse_life_insurance_premium") @db.Decimal(15, 2)
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("insurance_data")
+}
+
+// ─── Config Tables (Admin-managed) ───────────────────────────────────────────
+
+model TaxYear {
+  id        String   @id @default(uuid())
+  year      Int      @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  labelTh   String   @map("label_th") @db.VarChar(50)
+  labelEn   String   @map("label_en") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  taxBrackets       TaxBracket[]
+  personalAllowance PersonalAllowance?
+  deductionLimits   DeductionLimit[]
+  taxInputs         TaxInput[]
+  deductionEntries  TaxDeductionEntry[]
+
+  @@map("tax_years")
+}
+
+model TaxBracket {
+  id        String   @id @default(uuid())
+  taxYearId String   @map("tax_year_id")
+  minIncome Decimal  @map("min_income") @db.Decimal(15, 2)
+  maxIncome Decimal? @map("max_income") @db.Decimal(15, 2)
+  rate      Decimal  @db.Decimal(5, 2)
+  sortOrder Int      @map("sort_order")
+
+  taxYear TaxYear @relation(fields: [taxYearId], references: [id], onDelete: Cascade)
+
+  @@map("tax_brackets")
+}
+
+model PersonalAllowance {
+  id                    String  @id @default(uuid())
+  taxYearId             String  @unique @map("tax_year_id")
+  selfAmount            Decimal @map("self_amount") @db.Decimal(15, 2)
+  spouseAmount          Decimal @map("spouse_amount") @db.Decimal(15, 2)
+  childAmountPerChild   Decimal @map("child_amount_per_child") @db.Decimal(15, 2)
+  parentAmountPerParent Decimal @map("parent_amount_per_parent") @db.Decimal(15, 2)
+  maxParents            Int     @default(2) @map("max_parents")
+  expenseDeductionRate  Decimal @map("expense_deduction_rate") @db.Decimal(5, 2)
+  expenseDeductionMax   Decimal @map("expense_deduction_max") @db.Decimal(15, 2)
+
+  taxYear TaxYear @relation(fields: [taxYearId], references: [id], onDelete: Cascade)
+
+  @@map("personal_allowances")
+}
+
+model DeductionType {
+  id            String  @id @default(uuid())
+  code          String  @unique @db.VarChar(50)
+  nameTh        String  @map("name_th") @db.VarChar(255)
+  nameEn        String  @map("name_en") @db.VarChar(255)
+  descriptionTh String? @map("description_th")
+  descriptionEn String? @map("description_en")
+  isActive      Boolean @default(true) @map("is_active")
+  sortOrder     Int     @default(0) @map("sort_order")
+
+  limits           DeductionLimit[]
+  deductionEntries TaxDeductionEntry[]
+
+  @@map("deduction_types")
+}
+
+model DeductionLimit {
+  id                String   @id @default(uuid())
+  taxYearId         String   @map("tax_year_id")
+  deductionTypeId   String   @map("deduction_type_id")
+  maxAmount         Decimal? @map("max_amount") @db.Decimal(15, 2)
+  maxRateOfIncome   Decimal? @map("max_rate_of_income") @db.Decimal(5, 2)
+  combinedCapGroup  String?  @map("combined_cap_group") @db.VarChar(50)
+  combinedCapAmount Decimal? @map("combined_cap_amount") @db.Decimal(15, 2)
+  isActive          Boolean  @default(true) @map("is_active")
+
+  taxYear       TaxYear       @relation(fields: [taxYearId], references: [id], onDelete: Cascade)
+  deductionType DeductionType @relation(fields: [deductionTypeId], references: [id])
+
+  @@unique([taxYearId, deductionTypeId])
+  @@map("deduction_limits")
+}
+
+model FeatureFlag {
+  id             String   @id @default(uuid())
+  key            String   @unique @db.VarChar(100)
+  description    String?
+  freeEnabled    Boolean  @default(false) @map("free_enabled")
+  premiumEnabled Boolean  @default(true) @map("premium_enabled")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  updatedBy      String?  @map("updated_by")
+
+  @@map("feature_flags")
+}
+
+// ─── Admin & Audit ───────────────────────────────────────────────────────────
+
+model AdminUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String   @db.VarChar(255)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  auditLogs AuditLog[]
+
+  @@map("admin_users")
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  adminUserId String      @map("admin_user_id")
+  tableName   String      @map("table_name") @db.VarChar(100)
+  recordId    String      @map("record_id")
+  action      AuditAction
+  oldValues   Json?       @map("old_values")
+  newValues   Json?       @map("new_values")
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id])
+
+  @@map("audit_log")
+}
+
+model UsageEvent {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  eventType String   @map("event_type") @db.VarChar(100)
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("usage_events")
+}

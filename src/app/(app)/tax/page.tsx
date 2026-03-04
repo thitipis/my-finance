@@ -1,0 +1,343 @@
+"use client";
+import { useState, useEffect } from "react";
+import { Calculator, ChevronDown, ChevronUp, Info, Sparkles } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { formatCurrency } from "@/lib/utils";
+import type { TaxCalculationResult } from "@/types";
+
+type FilingStatus = "single" | "married_no_income" | "married_separate" | "married_joint";
+
+const FILING_STATUS_OPTIONS: { value: FilingStatus; label: string }[] = [
+  { value: "single",             label: "โสด" },
+  { value: "married_no_income",  label: "คู่สมรสไม่มีรายได้" },
+  { value: "married_separate",   label: "คู่สมรสมีรายได้ (แยกยื่น)" },
+  { value: "married_joint",      label: "คู่สมรสมีรายได้ (รวมยื่น)" },
+];
+
+interface DeductionTypeConfig {
+  id: string;
+  code: string;
+  nameTh: string;
+  maxAmount: number | null;
+  maxRateOfIncome: number | null;
+}
+
+export default function TaxPage() {
+  const [year, setYear] = useState(2025);
+  const [years, setYears] = useState<{ year: number; labelTh: string }[]>([]);
+  const [filingStatus, setFilingStatus] = useState<FilingStatus>("single");
+  const [deductionTypes, setDeductionTypes] = useState<DeductionTypeConfig[]>([]);
+  const [showAllDeductions, setShowAllDeductions] = useState(false);
+
+  // Income fields
+  const [annualSalary, setAnnualSalary] = useState("");
+  const [bonus, setBonus] = useState("");
+  const [otherIncome, setOtherIncome] = useState("");
+  const [spouseIncome, setSpouseIncome] = useState("");
+  const [withheldTax, setWithheldTax] = useState("");
+  const [providentFund, setProvidentFund] = useState("");
+  const [socialSecurity, setSocialSecurity] = useState("");
+  const [numChildren, setNumChildren] = useState("0");
+  const [numParents, setNumParents] = useState("0");
+
+  // Deduction amounts
+  const [deductionAmounts, setDeductionAmounts] = useState<Record<string, string>>({});
+
+  // Results
+  const [result, setResult] = useState<TaxCalculationResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Load tax years + config
+  useEffect(() => {
+    fetch("/api/tax/years")
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setYears(d.data); });
+  }, []);
+
+  useEffect(() => {
+    fetch(`/api/tax/config/${year}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success) setDeductionTypes(d.data.deductionTypes);
+      });
+  }, [year]);
+
+  const num = (v: string) => parseFloat(v.replace(/,/g, "")) || 0;
+
+  const handleCalculate = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const body = {
+        year,
+        filingStatus,
+        annualSalary: num(annualSalary),
+        bonus: num(bonus),
+        otherIncome: num(otherIncome),
+        spouseIncome: num(spouseIncome),
+        withheldTax: num(withheldTax),
+        providentFund: num(providentFund),
+        socialSecurity: num(socialSecurity),
+        numChildren: parseInt(numChildren) || 0,
+        numParents: parseInt(numParents) || 0,
+        deductions: deductionTypes.map((dt) => ({
+          deductionTypeId: dt.id,
+          code: dt.code,
+          amount: num(deductionAmounts[dt.id] ?? "0"),
+        })).filter((d) => d.amount > 0),
+      };
+
+      const res = await fetch("/api/tax/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResult(data.data);
+      } else {
+        setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่");
+      }
+    } catch {
+      setError("เกิดข้อผิดพลาด กรุณาลองใหม่");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const visibleDeductions = showAllDeductions ? deductionTypes : deductionTypes.slice(0, 4);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Calculator className="h-6 w-6 text-blue-500" />
+          คำนวณภาษี
+        </h1>
+        <p className="text-muted-foreground text-sm">ภาษีเงินได้บุคคลธรรมดา (ภงด.91)</p>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* ─ Left: Inputs ─ */}
+        <div className="space-y-4">
+          {/* Year + Filing Status */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">ปีภาษีและสถานภาพ</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Tax Year */}
+              <div className="space-y-1">
+                <Label>ปีภาษี</Label>
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={year}
+                  onChange={(e) => setYear(parseInt(e.target.value))}
+                >
+                  {years.map((y) => (
+                    <option key={y.year} value={y.year}>{y.labelTh}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Filing Status */}
+              <div className="space-y-1">
+                <Label>สถานภาพการยื่น</Label>
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={filingStatus}
+                  onChange={(e) => setFilingStatus(e.target.value as FilingStatus)}
+                >
+                  {FILING_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Income */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">รายได้</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                { label: "เงินเดือนทั้งปี (บาท)", value: annualSalary, set: setAnnualSalary, placeholder: "เช่น 840,000" },
+                { label: "โบนัส (บาท)", value: bonus, set: setBonus, placeholder: "เช่น 70,000" },
+                { label: "รายได้อื่น (บาท)", value: otherIncome, set: setOtherIncome, placeholder: "0" },
+                ...(filingStatus === "married_joint" ? [{ label: "รายได้คู่สมรส (บาท)", value: spouseIncome, set: setSpouseIncome, placeholder: "0" }] : []),
+                { label: "ภาษีหักณที่จ่าย (บาท)", value: withheldTax, set: setWithheldTax, placeholder: "0" },
+              ].map(({ label, value, set, placeholder }) => (
+                <div key={label} className="space-y-1">
+                  <Label>{label}</Label>
+                  <Input value={value} onChange={(e) => set(e.target.value)} placeholder={placeholder} />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Personal Allowances */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">ค่าลดหย่อนส่วนตัว</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                { label: "กองทุนสำรองเลี้ยงชีพ (บาท)", value: providentFund, set: setProvidentFund },
+                { label: "ประกันสังคม (บาท)", value: socialSecurity, set: setSocialSecurity, placeholder: "~9,000" },
+                { label: "จำนวนบุตร (คน)", value: numChildren, set: setNumChildren, type: "number" },
+                { label: "จำนวนบิดามารดา (คน, สูงสุด 2)", value: numParents, set: setNumParents, type: "number" },
+              ].map(({ label, value, set, placeholder, type }) => (
+                <div key={label} className="space-y-1">
+                  <Label>{label}</Label>
+                  <Input
+                    type={type ?? "text"}
+                    value={value}
+                    onChange={(e) => set(e.target.value)}
+                    placeholder={placeholder ?? "0"}
+                  />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Deductions */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">ค่าลดหย่อนการลงทุน / ประกัน</CardTitle>
+              <CardDescription className="text-xs">ใส่เฉพาะรายการที่คุณมีจริง</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {visibleDeductions.map((dt) => (
+                <div key={dt.id} className="space-y-1">
+                  <Label className="flex items-center justify-between">
+                    <span>{dt.nameTh}</span>
+                    {dt.maxAmount && (
+                      <span className="text-xs text-muted-foreground font-normal">
+                        สูงสุด ฿{dt.maxAmount.toLocaleString("th-TH")}
+                      </span>
+                    )}
+                  </Label>
+                  <Input
+                    value={deductionAmounts[dt.id] ?? ""}
+                    onChange={(e) =>
+                      setDeductionAmounts((prev) => ({ ...prev, [dt.id]: e.target.value }))
+                    }
+                    placeholder="0"
+                  />
+                </div>
+              ))}
+              {deductionTypes.length > 4 && (
+                <button
+                  onClick={() => setShowAllDeductions(!showAllDeductions)}
+                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  {showAllDeductions ? (
+                    <><ChevronUp className="h-3 w-3" />ย่อลง</>
+                  ) : (
+                    <><ChevronDown className="h-3 w-3" />ดูค่าลดหย่อนทั้งหมด ({deductionTypes.length - 4} รายการ)</>
+                  )}
+                </button>
+              )}
+            </CardContent>
+          </Card>
+
+          {error && (
+            <p className="text-sm text-destructive">{error}</p>
+          )}
+
+          <Button className="w-full" size="lg" onClick={handleCalculate} disabled={loading}>
+            {loading ? "กำลังคำนวณ..." : "คำนวณภาษี"}
+          </Button>
+        </div>
+
+        {/* ─ Right: Results ─ */}
+        <div className="space-y-4">
+          {!result ? (
+            <Card className="border-dashed">
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
+                <Calculator className="h-12 w-12 text-muted-foreground/30" />
+                <p className="text-muted-foreground text-sm">กรอกข้อมูลรายได้แล้วกด "คำนวณภาษี"<br />เพื่อดูผลลัพธ์</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Main result */}
+              <Card className={result.isRefund ? "border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/10" : "border-red-200 bg-red-50/50 dark:bg-red-950/10"}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    {result.isRefund ? "🎉 ได้รับคืนภาษี" : "💳 ต้องชำระภาษีเพิ่ม"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-4xl font-bold mb-1 ${result.isRefund ? "text-emerald-600" : "text-red-500"}`}>
+                    {result.isRefund ? "+" : ""}{formatCurrency(Math.abs(result.taxOwed))}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    อัตราภาษีที่แท้จริง {result.effectiveRate}% | ขั้นภาษีสูงสุด {result.marginalBracket}%
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Breakdown */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">รายละเอียดการคำนวณ</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  {[
+                    { label: "รายได้รวม", value: result.grossIncome, highlight: false },
+                    { label: "หักค่าใช้จ่าย (50%)", value: -result.expenseDeduction, highlight: false },
+                    { label: "หักค่าลดหย่อนส่วนตัว", value: -result.personalAllowances, highlight: false },
+                    { label: "หักค่าลดหย่อนอื่น", value: -result.otherDeductions, highlight: false },
+                    { label: "เงินได้สุทธิ", value: result.taxableIncome, highlight: true },
+                    { label: "ภาษีที่คำนวณได้", value: result.taxBeforeCredit, highlight: false },
+                    { label: "ภาษีหักณที่จ่าย", value: -result.withheldTax, highlight: false },
+                  ].map(({ label, value, highlight }) => (
+                    <div key={label} className={`flex justify-between ${highlight ? "font-semibold border-t pt-2 mt-2" : ""}`}>
+                      <span className={highlight ? "" : "text-muted-foreground"}>{label}</span>
+                      <span className={value < 0 ? "text-emerald-600" : ""}>{formatCurrency(value)}</span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              {/* Unused deduction room */}
+              {result.breakdown.unusedDeductionRoom.length > 0 && (
+                <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-amber-500" />
+                      โอกาสประหยัดภาษีที่เหลืออยู่
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {result.breakdown.unusedDeductionRoom.slice(0, 5).map((r) => (
+                      <div key={r.code} className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">{r.nameTh}</span>
+                        <div className="text-right">
+                          <span className="text-amber-600 font-medium">ประหยัดได้ {formatCurrency(r.potentialSaving)}</span>
+                          <p className="text-xs text-muted-foreground">(ลดหย่อนเพิ่มได้ {formatCurrency(r.roomLeft)})</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <p>ผลการคำนวณเป็นการประมาณการเท่านั้น ควรตรวจสอบกับสรรพากรหรือนักวางแผนการเงินที่ได้รับอนุญาต</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
