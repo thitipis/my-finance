@@ -45,6 +45,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    authorized({ auth: session, request: { nextUrl } }) {
+      const isLoggedIn = !!session?.user;
+      const isAuthPage = nextUrl.pathname.startsWith("/login") || nextUrl.pathname.startsWith("/register");
+      const isPublicApi = nextUrl.pathname.startsWith("/api/auth") ||
+        nextUrl.pathname.startsWith("/api/tax/years") ||
+        nextUrl.pathname.startsWith("/api/tax/config");
+
+      // Public pages / API — always allow
+      if (isAuthPage || isPublicApi) return true;
+
+      // Protected — must be logged in
+      if (!isLoggedIn) {
+        const redirectUrl = new URL("/login", nextUrl.origin);
+        redirectUrl.searchParams.set("callbackUrl", nextUrl.pathname);
+        return Response.redirect(redirectUrl);
+      }
+      return true;
+    },
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
@@ -72,18 +90,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
 });
 
-// Extend NextAuth types
-declare module "next-auth" {
-  interface User {
-    tier: string;
-    language: string;
-  }
-  interface Session {
-    user: {
-      id: string;
-      email: string;
-      tier: string;
-      language: string;
-    };
-  }
-}
+// Types extended in src/types/next-auth.d.ts

@@ -29,9 +29,11 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://myfinance:myfinance@db:5432/myfinance
-      AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+      AUTH_SECRET: "RSkV3EjX/SV3iP4zjs4P+5CNTyvZounVqRfaBBJDDuA="
+      AUTH_TRUST_HOST: "true"
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-admin-secret-change-me}
       NODE_ENV: production
     depends_on:
       db:
