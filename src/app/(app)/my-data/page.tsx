@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import {
   User, Banknote, ShieldCheck, TrendingUp, AlertTriangle,
   Save, Loader2, CheckCircle2, Wallet, Building2, Heart,
+  ShieldAlert, Activity, UserCheck, AlertCircle, ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -159,49 +160,158 @@ function IncomeTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Fina
 
 // ─── Tab: Insurance ───────────────────────────────────────────────────────────
 
+type InsuranceCoverage = {
+  key: keyof FinancialProfile;
+  label: string;
+  sublabel: string;
+  icon: React.ElementType;
+  iconColor: string;
+  bg: string;
+  border: string;
+  risk: string;       // what happens without it
+  deductHint: string;
+  maxDeduct: number | null;
+};
+
+const COVERAGE_TYPES: InsuranceCoverage[] = [
+  {
+    key: "lifeInsurancePremium", label: "ประกันชีวิต", sublabel: "Life Insurance",
+    icon: Heart, iconColor: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", border: "border-blue-200",
+    risk: "หากเสียชีวิตกะทันหัน ครอบครัวจะไม่มีรายได้ทดแทน",
+    deductHint: "ลดหย่อนได้สูงสุด 100,000 บาท", maxDeduct: 100000,
+  },
+  {
+    key: "healthInsurancePremium", label: "ประกันสุขภาพ", sublabel: "Health Insurance",
+    icon: Activity, iconColor: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200",
+    risk: "ค่ารักษาพยาบาลอาจสูงถึงหลักล้าน ทำให้เงินออมหมดในพริบตา",
+    deductHint: "ลดหย่อนได้สูงสุด 25,000 บาท", maxDeduct: 25000,
+  },
+  {
+    key: "parentHealthInsurancePremium", label: "ประกันสุขภาพบิดา/มารดา", sublabel: "Parent Health",
+    icon: UserCheck, iconColor: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-950/30", border: "border-sky-200",
+    risk: "ค่ารักษาผู้สูงอายุแพงมาก อาจกระทบรายได้ทั้งครอบครัว",
+    deductHint: "ลดหย่อนได้สูงสุด 15,000 บาท", maxDeduct: 15000,
+  },
+  {
+    key: "annuityInsurancePremium", label: "ประกันบำนาญ", sublabel: "Annuity Insurance",
+    icon: Wallet, iconColor: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-950/30", border: "border-teal-200",
+    risk: "เกษียณแล้วเงินอาจหมดก่อนอายุขัย หากไม่มีรายได้สม่ำเสมอ",
+    deductHint: "ลดหย่อนได้ 15% ของรายได้ สูงสุด 200,000 บาท", maxDeduct: 200000,
+  },
+  {
+    key: "spouseLifeInsurancePremium", label: "ประกันชีวิตคู่สมรส", sublabel: "Spouse Life",
+    icon: Heart, iconColor: "text-pink-600", bg: "bg-pink-50 dark:bg-pink-950/30", border: "border-pink-200",
+    risk: "คู่สมรสที่ไม่มีรายได้ควรมีหลักประกันหากเกิดเหตุไม่คาดฝัน",
+    deductHint: "ลดหย่อนได้สูงสุด 10,000 บาท (คู่สมรสไม่มีรายได้)", maxDeduct: 10000,
+  },
+];
+
 function InsuranceTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
-  const lifeTaxDeduct    = Math.min(p.lifeInsurancePremium, 100000);
-  const healthTaxDeduct  = Math.min(p.healthInsurancePremium, 25000);
-  const parentTaxDeduct  = Math.min(p.parentHealthInsurancePremium, 15000);
-  const annuityTaxDeduct = Math.min(p.annuityInsurancePremium, 200000);
-  const totalPremium = p.lifeInsurancePremium + p.healthInsurancePremium + p.parentHealthInsurancePremium + p.annuityInsurancePremium + p.spouseLifeInsurancePremium;
+  const totalPremium = (p.lifeInsurancePremium + p.healthInsurancePremium + p.parentHealthInsurancePremium + p.annuityInsurancePremium + p.spouseLifeInsurancePremium);
+  const coveredCount = COVERAGE_TYPES.filter(t => (p[t.key] as number) > 0).length;
+  const missingCount = COVERAGE_TYPES.length - coveredCount;
+
   return (
     <div className="space-y-4">
-      {totalPremium > 0 && (
-        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
-          <SummaryPill label="เบี้ยรวม/ปี" value={thb(totalPremium)} />
-          <SummaryPill label="ลดหย่อนภาษีได้" value={thb(lifeTaxDeduct + healthTaxDeduct + parentTaxDeduct)} color="text-emerald-600" />
-          <SummaryPill label="ประกันบำนาญ" value={p.annuityInsurancePremium > 0 ? thb(annuityTaxDeduct) : "—"} />
+
+      {/* ── Awareness banner ── */}
+      <div className="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 p-4">
+        <div className="flex items-start gap-3">
+          <ShieldAlert className="h-6 w-6 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-amber-800 dark:text-amber-300">ประกันคือโล่กำบังทางการเงินของคุณ</p>
+            <p className="text-sm text-amber-700/80 dark:text-amber-400 mt-1">
+              คนไทยกว่า 70% ไม่มีประกันสุขภาพเพียงพอ ค่ารักษาพยาบาลเพียงครั้งเดียวอาจทำลายแผนเกษียณของคุณทั้งชีวิต
+            </p>
+            {missingCount > 0 && (
+              <p className="text-sm font-medium text-red-600 mt-2 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4" />
+                คุณยังขาดความคุ้มครอง {missingCount} ประเภท — ควรพิจารณาเพิ่มเติม
+              </p>
+            )}
+            {missingCount === 0 && (
+              <p className="text-sm font-medium text-emerald-600 mt-2 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4" />
+                ครบทุกประเภทแล้ว — ความคุ้มครองของคุณดีมาก!
+              </p>
+            )}
+          </div>
         </div>
-      )}
-      <SectionCard title="ประกันชีวิต & สุขภาพ" icon={Heart} iconColor="text-rose-500">
-        <NumField label="ประกันชีวิตทั่วไป (บาท/ปี)" value={p.lifeInsurancePremium} onChange={v => upd("lifeInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 100,000 บาท" />
-        <NumField label="ประกันสุขภาพตนเอง (บาท/ปี)" value={p.healthInsurancePremium} onChange={v => upd("healthInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 25,000 บาท" />
-        <NumField label="ประกันสุขภาพบิดา/มารดา (บาท/ปี)" value={p.parentHealthInsurancePremium} onChange={v => upd("parentHealthInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 15,000 บาท" />
-        <NumField label="ประกันบำนาญ / แบบสะสมทรัพย์ (บาท/ปี)" value={p.annuityInsurancePremium} onChange={v => upd("annuityInsurancePremium", v)} hint="ลดหย่อนได้ 15% ของรายได้ สูงสุด 200,000 บาท" />
-        <NumField label="ประกันชีวิตคู่สมรส (บาท/ปี)" value={p.spouseLifeInsurancePremium} onChange={v => upd("spouseLifeInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 10,000 บาท" />
-      </SectionCard>
-      <Card className="bg-emerald-50/50 border-emerald-200 dark:bg-emerald-950/10">
-        <CardContent className="pt-4 pb-4 space-y-2">
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">💡 สรุปสิทธิ์ลดหย่อนภาษีจากประกัน</p>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            {([["ประกันชีวิต", thb(lifeTaxDeduct)], ["ประกันสุขภาพ", thb(healthTaxDeduct)], ["ประกันสุขภาพบิดา/มารดา", thb(parentTaxDeduct)], ["ประกันบำนาญ", thb(annuityTaxDeduct)]] as [string, string][]).map(([label, val]) => (
-              <div key={label} className="flex justify-between">
-                <span className="text-muted-foreground">{label}</span>
-                <span className="font-medium">{val}</span>
+      </div>
+
+      {/* ── Coverage status bar ── */}
+      <div className="flex flex-wrap gap-2 text-sm">
+        <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">✓ มีแล้ว {coveredCount} ประเภท</span>
+        {missingCount > 0 && <span className="px-3 py-1 rounded-full bg-red-100 text-red-700 font-medium">⚠ ขาด {missingCount} ประเภท</span>}
+        {totalPremium > 0 && <span className="px-3 py-1 rounded-full bg-muted text-muted-foreground">เบี้ยรวม ฿{totalPremium.toLocaleString("th-TH")}/ปี</span>}
+      </div>
+
+      {/* ── Coverage cards ── */}
+      <div className="space-y-3">
+        {COVERAGE_TYPES.map(type => {
+          const Icon = type.icon;
+          const premium = p[type.key] as number;
+          const hasCoverage = premium > 0;
+          const taxSaving = type.maxDeduct ? Math.min(premium, type.maxDeduct) : 0;
+
+          return (
+            <div key={type.key} className={`rounded-xl border p-4 transition-all ${hasCoverage ? `${type.bg} ${type.border}` : "border-dashed border-muted-foreground/30 hover:border-muted-foreground/50"}`}>
+              <div className="flex items-start gap-3">
+                <div className={`rounded-full p-2 shrink-0 ${hasCoverage ? type.bg : "bg-muted/50"}`}>
+                  <Icon className={`h-4 w-4 ${hasCoverage ? type.iconColor : "text-muted-foreground"}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-sm">{type.label}</span>
+                    <span className="text-xs text-muted-foreground">{type.sublabel}</span>
+                    {hasCoverage
+                      ? <span className="ml-auto text-xs text-emerald-600 font-medium flex items-center gap-0.5"><CheckCircle2 className="h-3.5 w-3.5" /> มีแล้ว</span>
+                      : <span className="ml-auto text-xs text-red-500 font-medium flex items-center gap-0.5"><AlertCircle className="h-3.5 w-3.5" /> ยังไม่มี</span>
+                    }
+                  </div>
+
+                  {!hasCoverage && (
+                    <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
+                      ⚠️ {type.risk}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-2 mt-1">
+                    <Label className="text-xs shrink-0 text-muted-foreground">เบี้ย/ปี (บาท)</Label>
+                    <Input
+                      type="number" min={0}
+                      className="h-7 text-sm"
+                      value={premium || ""}
+                      placeholder="0"
+                      onChange={e => upd(type.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof type.key])}
+                    />
+                  </div>
+                  {hasCoverage && taxSaving > 0 && (
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1.5">
+                      💡 {type.deductHint} · คุณลดหย่อนได้ ฿{taxSaving.toLocaleString("th-TH")}
+                    </p>
+                  )}
+                  {!hasCoverage && (
+                    <p className="text-xs text-muted-foreground mt-1">{type.deductHint}</p>
+                  )}
+                </div>
               </div>
-            ))}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── CTA to dedicated insurance page ── */}
+      <Link href="/insurance">
+        <div className="rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors p-4 flex items-center justify-between cursor-pointer group">
+          <div>
+            <p className="font-semibold text-sm">วิเคราะห์ความคุ้มครองเชิงลึก</p>
+            <p className="text-xs text-muted-foreground mt-0.5">ดูคะแนนความคุ้มครอง · คำแนะนำเฉพาะตัว · จัดการประกันทั้งหมด</p>
           </div>
-          <div className="border-t pt-2 flex justify-between text-sm font-semibold">
-            <span>รวมลดหย่อนได้</span>
-            <span className="text-emerald-700">{thb(lifeTaxDeduct + healthTaxDeduct + parentTaxDeduct + annuityTaxDeduct)}</span>
-          </div>
-          <p className="text-xs text-muted-foreground pt-1">
-            ต้องการวิเคราะห์ความคุ้มครอง?{" "}
-            <Link href="/insurance" className="text-primary underline underline-offset-2">ไปที่วิเคราะห์ประกัน →</Link>
-          </p>
-        </CardContent>
-      </Card>
+          <ExternalLink className="h-4 w-4 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" />
+        </div>
+      </Link>
+
     </div>
   );
 }
