@@ -15,6 +15,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Database,
+  MapPin,
 } from "lucide-react";
 
 interface Goal {
@@ -51,6 +52,45 @@ interface FinancialProfile {
 interface RiskAssessment {
   riskLevel: "conservative" | "moderate" | "aggressive";
   score: number;
+}
+
+interface FinancialPlan {
+  currentAge: number | null;
+  retirementAge: number | null;
+  monthlyRetirementNeeds: number | null;
+  monthlyInvestable: number | null;
+  currentSavings: number | null;
+  expectedReturn: number | null;
+  inflationRate: number | null;
+  targetWealthOverride: number | null;
+  hasHomeGoal: boolean;
+  hasCarGoal: boolean;
+  hasEducationGoal: boolean;
+}
+
+function calcFV(pv: number, r: number, n: number, pmt: number): number {
+  if (n <= 0) return pv;
+  if (Math.abs(r) < 1e-9) return pv + pmt * n;
+  const g = (1 + r) ** n;
+  return pv * g + pmt * (g - 1) / r;
+}
+
+function planProjection(p: FinancialPlan) {
+  if (!p.currentAge || !p.retirementAge) return null;
+  const years = Math.max(1, p.retirementAge - p.currentAge);
+  const r = (1 + Number(p.expectedReturn ?? 7) / 100) ** (1 / 12) - 1;
+  const inflation = Number(p.inflationRate ?? 3) / 100;
+  const monthlyNeeds = Number(p.monthlyRetirementNeeds ?? 0);
+  const pv = Number(p.currentSavings ?? 0);
+  const pmt = Number(p.monthlyInvestable ?? 0);
+  const projected = calcFV(pv, r, years * 12, pmt);
+  const corpus = p.targetWealthOverride
+    ? Number(p.targetWealthOverride)
+    : monthlyNeeds > 0
+    ? (monthlyNeeds * 12 * (1 + inflation) ** years) / 0.04
+    : 0;
+  const pct = corpus > 0 ? Math.min(100, Math.round((projected / corpus) * 100)) : 100;
+  return { projected, corpus, pct, onTrack: projected >= corpus, years };
 }
 
 const riskInfo = {
@@ -110,6 +150,8 @@ export default function DashboardPage() {
   const [taxLoading, setTaxLoading]   = useState(true);
   const [profile, setProfile]         = useState<FinancialProfile | null>(null);
   const [risk, setRisk]               = useState<RiskAssessment | null>(null);
+  const [plan, setPlan]               = useState<FinancialPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(true);
 
   useEffect(() => {
     // Load all dashboard data in parallel
@@ -118,7 +160,8 @@ export default function DashboardPage() {
       fetch("/api/tax/results").then(r => r.json()),
       fetch("/api/user/financial-profile").then(r => r.json()),
       fetch("/api/user/risk-assessment").then(r => r.json()),
-    ]).then(([goalsRes, taxRes, profRes, riskRes]) => {
+      fetch("/api/user/financial-plan").then(r => r.json()),
+    ]).then(([goalsRes, taxRes, profRes, riskRes, planRes]) => {
       setGoals(Array.isArray(goalsRes) ? goalsRes.slice(0, 3) : []);
       setGoalsLoading(false);
       const results: TaxResult[] = taxRes.data ?? [];
@@ -126,15 +169,19 @@ export default function DashboardPage() {
       setTaxLoading(false);
       if (profRes.data) setProfile(profRes.data);
       if (riskRes.data) setRisk(riskRes.data);
+      if (planRes.data) setPlan(planRes.data);
+      setPlanLoading(false);
     }).catch(() => {
       setGoalsLoading(false);
       setTaxLoading(false);
+      setPlanLoading(false);
     });
   }, []);
 
   const healthScore = calcHealthScore(profile);
   const healthLabel = healthScore >= 75 ? "ดีมาก" : healthScore >= 50 ? "ปานกลาง" : healthScore >= 25 ? "ควรปรับปรุง" : "ต้องการความสนใจ";
   const healthColor = healthScore >= 75 ? "text-green-600" : healthScore >= 50 ? "text-amber-600" : "text-red-500";
+  const proj = plan ? planProjection(plan) : null;
 
   return (
     <div className="space-y-6">
@@ -187,12 +234,13 @@ export default function DashboardPage() {
       </Card>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
         {[
-          { href: "/my-data",   icon: Database,          label: "ข้อมูลของฉัน",     color: "text-primary" },
-          { href: "/tax",       icon: Calculator,        label: "คำนวณภาษี",         color: "text-blue-500" },
-          { href: "/goals",     icon: Target,            label: "เป้าหมายการเงิน",   color: "text-emerald-500" },
-          { href: "/ai-chat",   icon: MessageSquareText, label: "AI ที่ปรึกษา",      color: "text-purple-500" },
+          { href: "/my-data",        icon: Database,          label: "ข้อมูลของฉัน",   color: "text-primary" },
+          { href: "/tax",            icon: Calculator,        label: "คำนวณภาษี",       color: "text-blue-500" },
+          { href: "/financial-plan", icon: MapPin,            label: "แผนการเงิน",      color: "text-indigo-500" },
+          { href: "/goals",          icon: Target,            label: "เป้าหมาย",        color: "text-emerald-500" },
+          { href: "/ai-chat",        icon: MessageSquareText, label: "AI ที่ปรึกษา",    color: "text-purple-500" },
         ].map(({ href, icon: Icon, label, color }) => (
           <Link key={href} href={href}>
             <Card className="hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer">
@@ -304,6 +352,95 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Financial Plan Summary */}
+      <Card className={proj
+        ? proj.onTrack
+          ? "border-emerald-300 bg-gradient-to-br from-emerald-50/60 to-transparent dark:from-emerald-950/10"
+          : "border-amber-300 bg-gradient-to-br from-amber-50/60 to-transparent dark:from-amber-950/10"
+        : ""
+      }>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <MapPin className="h-5 w-5 text-indigo-500" />
+            แผนการเงินส่วนตัว
+          </CardTitle>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/financial-plan">{plan ? "ปรับแผน →" : "สร้างแผน →"}</Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {planLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !plan || !proj ? (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 py-2">
+              <div className="text-4xl">🗺️</div>
+              <div>
+                <p className="font-medium text-sm">ยังไม่มีแผนการเงิน</p>
+                <p className="text-xs text-muted-foreground mt-0.5">ตั้งเป้าหมายเกษียณ วางแผนซื้อบ้าน รถ หรือทุนการศึกษา พร้อม slider คำนวณแบบ real-time</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {proj.onTrack
+                    ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    : <AlertCircle className="h-4 w-4 text-amber-500" />}
+                  <span className={`text-sm font-semibold ${
+                    proj.onTrack ? "text-emerald-700" : "text-amber-700"
+                  }`}>
+                    {proj.onTrack ? "อยู่ในเส้นทาง ✓" : "ต้องปรับแผน ⚠"}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  เกษียณอายุ {plan.retirementAge} ปี (อีก {proj.years} ปี)
+                </span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>ความคืบหน้าสู่เป้าหมาย</span>
+                  <span className="font-medium text-foreground">{proj.pct}%</span>
+                </div>
+                <Progress value={proj.pct} className="h-2" />
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground text-xs">ความมั่งคั่งที่คาด</p>
+                  <p className="font-bold text-base text-blue-600">
+                    {proj.projected >= 1_000_000
+                      ? `฿${(proj.projected / 1_000_000).toFixed(1)}M`
+                      : `฿${Math.round(proj.projected).toLocaleString("th-TH")}`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">เป้า corpus</p>
+                  <p className="font-bold text-base">
+                    {proj.corpus >= 1_000_000
+                      ? `฿${(proj.corpus / 1_000_000).toFixed(1)}M`
+                      : `฿${Math.round(proj.corpus).toLocaleString("th-TH")}`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">ออม/เดือน</p>
+                  <p className="font-bold text-base">
+                    ฿{Number(plan.monthlyInvestable ?? 0).toLocaleString("th-TH")}
+                  </p>
+                </div>
+              </div>
+              {(plan.hasHomeGoal || plan.hasCarGoal || plan.hasEducationGoal) && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {plan.hasHomeGoal && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">🏠 บ้าน</span>}
+                  {plan.hasCarGoal  && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">🚗 รถ</span>}
+                  {plan.hasEducationGoal && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">🎓 การศึกษา</span>}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Insurance + Risk prompt */}
       <div className="grid md:grid-cols-2 gap-4">
