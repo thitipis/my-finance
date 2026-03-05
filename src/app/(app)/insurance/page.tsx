@@ -63,6 +63,20 @@ const PRIORITY_CONFIG = {
   low:      { label: "ทางเลือก",   className: "bg-gray-100 text-gray-700 border-gray-300" },
 };
 
+function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
+  const r = (size - 10) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * score / 100;
+  const color = score >= 80 ? "#10b981" : score >= 60 ? "#f59e0b" : score >= 40 ? "#f97316" : "#ef4444";
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+      <circle cx={size/2} cy={size/2} r={r} strokeWidth={8} stroke="currentColor" className="text-muted/20" fill="none" />
+      <circle cx={size/2} cy={size/2} r={r} strokeWidth={8} stroke={color} fill="none"
+        strokeDasharray={`${dash.toFixed(1)} ${circ.toFixed(1)}`} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function InsurancePage() {
   const [values, setValues] = useState<InsuranceState>({
     lifeInsurancePremium: 0,
@@ -128,6 +142,17 @@ export default function InsurancePage() {
   const highlightedRecs = recommendations.filter(r => r.highlighted);
   const otherRecs = recommendations.filter(r => !r.highlighted);
 
+  // Simple protection score (0-100)
+  const protectionScore = Math.min(100, Math.round(
+    (coverage.hasAccidentInsurance ? 20 : 0) +
+    (coverage.hasCriticalIllness   ? 20 : 0) +
+    (coverage.hasDisabilityInsurance ? 15 : 0) +
+    (coverage.lifeCoverageAmount > 0 ? 20 : 0) +
+    (coverage.healthCoveragePerYear > 0 ? 15 : 0) +
+    (criticalCount === 0 && !recLoading ? 10 : 0)
+  ));
+  const scoreLabel = protectionScore >= 80 ? "ความคุ้มครองดีมาก" : protectionScore >= 60 ? "ความคุ้มครองพอใช้" : protectionScore >= 40 ? "ต้องเพิ่มความคุ้มครอง" : "ความคุ้มครองไม่เพียงพอ";
+
   if (loading) return (
     <div className="flex justify-center py-20">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -144,31 +169,31 @@ export default function InsurancePage() {
         <p className="text-muted-foreground text-sm">วิเคราะห์ความคุ้มครองและบันทึกเบี้ยประกันเพื่อลดหย่อนภาษี</p>
       </div>
 
-      {/* Current coverage summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <Card className={total > 0 ? "border-emerald-200" : "border-dashed"}>
-          <CardContent className="pt-4 pb-3">
-            <p className="text-xs text-muted-foreground">เบี้ยประกันทั้งหมด/ปี</p>
-            <p className={`text-xl font-bold ${total > 0 ? "text-emerald-600" : "text-muted-foreground"}`}>
-              {total > 0 ? `฿${total.toLocaleString("th-TH")}` : "—"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className={criticalCount === 0 ? "border-emerald-200" : "border-red-200"}>
-          <CardContent className="pt-4 pb-3">
-            <p className="text-xs text-muted-foreground">รายการเร่งด่วน</p>
-            <p className={`text-xl font-bold ${criticalCount === 0 ? "text-emerald-600" : "text-red-600"}`}>
-              {recLoading ? "..." : criticalCount === 0 ? "✓ ครบแล้ว" : `${criticalCount} รายการ`}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-3">
-            <p className="text-xs text-muted-foreground">คำแนะนำทั้งหมด</p>
-            <p className="text-xl font-bold">{recLoading ? "..." : recommendations.length}</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Protection score + summary */}
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-center gap-5">
+            <div className="relative shrink-0">
+              <ScoreRing score={protectionScore} size={80} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-lg font-bold">{protectionScore}</span>
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold">{scoreLabel}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">คะแนนความคุ้มครองโดยรวม</p>
+              <div className="flex flex-wrap gap-3 mt-2 text-sm">
+                <span className={total > 0 ? "text-emerald-600 font-medium" : "text-muted-foreground"}>
+                  💰 {total > 0 ? `฿${total.toLocaleString("th-TH")}/ปี` : "ยังไม่บันทึกเบี้ย"}
+                </span>
+                <span className={criticalCount === 0 ? "text-emerald-600" : "text-red-600"}>
+                  {recLoading ? "⏳ โหลด..." : criticalCount === 0 ? "✓ ไม่มีรายการเร่งด่วน" : `⚠️ เร่งด่วน ${criticalCount} รายการ`}
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Recommendations */}
       {!recLoading && recommendations.length > 0 && (

@@ -1,79 +1,116 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Target, Plus, TrendingUp, Trash2, Loader2 } from "lucide-react";
+import { Target, Plus, TrendingUp, Trash2, Loader2, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+
+const thb = (n: number) =>
+  n >= 1_000_000 ? `\u0e3f${(n / 1_000_000).toFixed(1)}M`
+  : n >= 1_000   ? `\u0e3f${(n / 1_000).toFixed(0)}K`
+  : `\u0e3f${n.toLocaleString("th-TH")}`;
 
 type Projection = { projectedCompletionDate: string | null; onTrack: boolean; progressPercent: number; monthsRemaining: number | null };
 type Goal = { id: string; name: string; goalType: string; targetAmount: string; currentAmount: string; monthlyContribution: string; annualReturnRate: string; projection: Projection };
 const EMPTY_FORM = { name: "", goalType: "retirement", targetAmount: "", currentAmount: "0", monthlyContribution: "", annualReturnRate: "7" };
 
-const GOAL_TYPES = [
-  { value: "retirement",     label: "เกษียณอายุ" },
-  { value: "emergency_fund", label: "กองทุนฉุกเฉิน" },
-  { value: "investment",     label: "การลงทุน" },
-  { value: "home_car",       label: "บ้าน / รถ" },
-  { value: "education",      label: "ค่าการศึกษา" },
-  { value: "custom",         label: "อื่น ๆ" },
+const GOAL_TYPES: { value: string; label: string; color: string; icon: string }[] = [
+  { value: "retirement",     label: "เกษียณอายุ",    color: "#6366f1", icon: "🏖️" },
+  { value: "emergency_fund", label: "กองทุนฉุกเฉิน", color: "#f59e0b", icon: "🛡️" },
+  { value: "investment",     label: "การลงทุน",      color: "#10b981", icon: "📈" },
+  { value: "home_car",       label: "บ้าน / รถ",     color: "#3b82f6", icon: "🏠" },
+  { value: "education",      label: "ค่าการศึกษา",  color: "#8b5cf6", icon: "🎓" },
+  { value: "custom",         label: "อื่น ๆ",        color: "#64748b", icon: "⭐" },
 ];
 
+function ProgressRing({ pct, color, size = 64 }: { pct: number; color: string; size?: number }) {
+  const r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * Math.min(pct, 100) / 100;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
+      <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={6}
+        stroke="currentColor" className="text-muted/20" fill="none" />
+      <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={6}
+        stroke={pct >= 100 ? "#10b981" : color} fill="none"
+        strokeDasharray={`${dash.toFixed(1)} ${circ.toFixed(1)}`}
+        strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function GoalCard({ goal, onDelete }: { goal: Goal; onDelete: (id: string) => void }) {
-  const progress = goal.projection.progressPercent;
-  const typeLabel = GOAL_TYPES.find(t => t.value === goal.goalType)?.label ?? goal.goalType;
-  const [deleting, setDeleting] = useState(false);
+  const pct  = goal.projection.progressPercent;
+  const type = GOAL_TYPES.find(t => t.value === goal.goalType) ?? GOAL_TYPES[GOAL_TYPES.length - 1];
+  const [del, setDel] = useState(false);
 
   const handleDelete = async () => {
     if (!confirm("ลบเป้าหมายนี้?")) return;
-    setDeleting(true);
+    setDel(true);
     await fetch(`/api/goals/${goal.id}`, { method: "DELETE" });
     onDelete(goal.id);
   };
 
+  const current = Number(goal.currentAmount);
+  const target  = Number(goal.targetAmount);
+  const monthly = Number(goal.monthlyContribution);
+  const left    = Math.max(0, target - current);
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-base">{goal.name}</CardTitle>
-            <CardDescription>{typeLabel}</CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={progress >= 100 ? "success" : "secondary"}>{progress}%</Badge>
-            <button onClick={handleDelete} disabled={deleting} className="text-muted-foreground hover:text-destructive transition-colors">
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            </button>
+    <Card className="overflow-hidden">
+      <div className="h-1 w-full" style={{ background: type.color }} />
+      <CardContent className="pt-4 pb-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <ProgressRing pct={pct} color={type.color} size={60} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-semibold text-sm leading-tight">{goal.name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{type.icon} {type.label}</p>
+              </div>
+              <button onClick={handleDelete} disabled={del}
+                className="text-muted-foreground hover:text-destructive transition-colors shrink-0 mt-0.5">
+                {del ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              </button>
+            </div>
+            <div className="mt-2 flex items-baseline gap-1">
+              <span className="text-xl font-bold" style={{ color: pct >= 100 ? "#10b981" : type.color }}>{pct}%</span>
+              <span className="text-xs text-muted-foreground">ของเป้าหมาย</span>
+            </div>
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Progress value={Math.min(progress, 100)} />
-        <div className="grid grid-cols-2 gap-y-2 text-sm">
-          <span className="text-muted-foreground">ปัจจุบัน</span>
-          <span className="text-right font-medium">{formatCurrency(Number(goal.currentAmount))}</span>
-          <span className="text-muted-foreground">เป้าหมาย</span>
-          <span className="text-right font-medium">{formatCurrency(Number(goal.targetAmount))}</span>
-          <span className="text-muted-foreground">ออมต่อเดือน</span>
-          <span className="text-right font-medium">{formatCurrency(Number(goal.monthlyContribution))}</span>
-          <span className="text-muted-foreground">ผลตอบแทน/ปี</span>
-          <span className="text-right font-medium">{goal.annualReturnRate}%</span>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {[
+            { label: "มีอยู่แล้ว", value: thb(current) },
+            { label: "เป้าหมาย",   value: thb(target) },
+            { label: "ขาดอีก",     value: left === 0 ? "✓" : thb(left), green: left === 0 },
+          ].map(({ label, value, green }) => (
+            <div key={label} className="bg-muted/40 rounded-lg py-1.5 px-2">
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className={cn("text-sm font-semibold", green && "text-emerald-600")}>{value}</p>
+            </div>
+          ))}
         </div>
-        {goal.projection.projectedCompletionDate ? (
-          <div className="flex items-center gap-2 p-2 bg-primary/5 rounded-lg text-sm">
-            <TrendingUp className="h-4 w-4 text-primary shrink-0" />
-            <span>คาดว่าถึงเป้าหมาย: <strong>{goal.projection.projectedCompletionDate.slice(0, 7)}</strong>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">ออม {thb(monthly)}/เดือน · {goal.annualReturnRate}%/ปี</span>
+          {pct >= 100 ? (
+            <span className="flex items-center gap-1 text-emerald-600 font-medium">
+              <CheckCircle2 className="h-3.5 w-3.5" />ถึงเป้าหมายแล้ว!
+            </span>
+          ) : goal.projection.projectedCompletionDate ? (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Clock className="h-3.5 w-3.5" />
+              {goal.projection.projectedCompletionDate.slice(0, 7)}
               {goal.projection.monthsRemaining !== null && ` (${goal.projection.monthsRemaining} เดือน)`}
             </span>
-          </div>
-        ) : (
-          <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950 p-2 rounded-lg">
-            กรุณาเพิ่มจำนวนเงินออมหรืออัตราผลตอบแทนเพื่อฉายภาพ
-          </p>
-        )}
+          ) : (
+            <span className="flex items-center gap-1 text-amber-600">
+              <AlertCircle className="h-3.5 w-3.5" />ยังไม่สามารถฉายภาพ
+            </span>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -96,8 +133,6 @@ export default function GoalsPage() {
   }, []);
 
   useEffect(() => { loadGoals(); }, [loadGoals]);
-
-  const updateForm = (field: string, val: string) => setForm(prev => ({ ...prev, [field]: val }));
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,58 +160,89 @@ export default function GoalsPage() {
 
   const handleDelete = (id: string) => setGoals(prev => prev.filter(g => g.id !== id));
 
+  const totalTarget  = goals.reduce((s, g) => s + Number(g.targetAmount), 0);
+  const totalCurrent = goals.reduce((s, g) => s + Number(g.currentAmount), 0);
+  const overallPct   = totalTarget > 0 ? Math.round(totalCurrent / totalTarget * 100) : 0;
+  const doneCount    = goals.filter(g => g.projection.progressPercent >= 100).length;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Target className="h-6 w-6 text-emerald-500" />
+            <Target className="h-6 w-6 text-primary" />
             เป้าหมายการเงิน
           </h1>
           <p className="text-muted-foreground text-sm">วางแผนและติดตามเป้าหมายทางการเงินของคุณ</p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
-          <Plus className="h-4 w-4 mr-1" />
-          เพิ่มเป้าหมาย
+        <Button onClick={() => setShowForm(v => !v)}>
+          <Plus className="h-4 w-4 mr-1" />เพิ่มเป้าหมาย
         </Button>
       </div>
+
+      {goals.length > 0 && !loading && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "เป้าหมายทั้งหมด", value: `${goals.length} รายการ`,  icon: <Target className="h-4 w-4 text-primary" /> },
+            { label: "สำเร็จแล้ว",      value: `${doneCount} รายการ`,  icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" /> },
+            { label: "รวมออมแล้ว",      value: thb(totalCurrent),          icon: <TrendingUp className="h-4 w-4 text-blue-500" /> },
+            { label: "ความคืบหน้ารวม", value: `${overallPct}%`,           icon: <Clock className="h-4 w-4 text-amber-500" /> },
+          ].map(({ label, value, icon }) => (
+            <Card key={label}>
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-center gap-2 mb-1">{icon}<p className="text-xs text-muted-foreground">{label}</p></div>
+                <p className="font-bold text-lg">{value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {showForm && (
         <Card className="border-primary/30">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">เพิ่มเป้าหมายใหม่</CardTitle>
+            <CardDescription>กรอกข้อมูลเป้าหมายที่คุณต้องการบรรลุ</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSave} className="grid md:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label>ชื่อเป้าหมาย *</Label>
-                <Input placeholder="เช่น เกษียณอายุ 60 ปี" value={form.name} onChange={e => updateForm("name", e.target.value)} required />
+                <Input placeholder="เช่น เกษียณอายุ 60 ปี" value={form.name}
+                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required />
               </div>
               <div className="space-y-1">
                 <Label>ประเภท</Label>
-                <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={form.goalType} onChange={e => updateForm("goalType", e.target.value)}>
-                  {GOAL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                  value={form.goalType} onChange={e => setForm(p => ({ ...p, goalType: e.target.value }))}>
+                  {GOAL_TYPES.map(t => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
                 </select>
               </div>
               <div className="space-y-1">
                 <Label>จำนวนเงินเป้าหมาย (บาท) *</Label>
-                <Input type="number" placeholder="15000000" value={form.targetAmount} onChange={e => updateForm("targetAmount", e.target.value)} required min={1} />
+                <Input type="number" placeholder="15,000,000" value={form.targetAmount}
+                  onChange={e => setForm(p => ({ ...p, targetAmount: e.target.value }))} required min={1} />
               </div>
               <div className="space-y-1">
                 <Label>ออมต่อเดือน (บาท) *</Label>
-                <Input type="number" placeholder="15000" value={form.monthlyContribution} onChange={e => updateForm("monthlyContribution", e.target.value)} required min={0} />
+                <Input type="number" placeholder="15,000" value={form.monthlyContribution}
+                  onChange={e => setForm(p => ({ ...p, monthlyContribution: e.target.value }))} required min={0} />
               </div>
               <div className="space-y-1">
                 <Label>มีอยู่แล้ว (บาท)</Label>
-                <Input type="number" placeholder="0" value={form.currentAmount} onChange={e => updateForm("currentAmount", e.target.value)} min={0} />
+                <Input type="number" placeholder="0" value={form.currentAmount}
+                  onChange={e => setForm(p => ({ ...p, currentAmount: e.target.value }))} min={0} />
               </div>
               <div className="space-y-1">
                 <Label>ผลตอบแทนคาดหวัง (% / ปี)</Label>
-                <Input type="number" placeholder="7" value={form.annualReturnRate} onChange={e => updateForm("annualReturnRate", e.target.value)} min={0} max={100} step={0.1} />
+                <Input type="number" placeholder="7" value={form.annualReturnRate}
+                  onChange={e => setForm(p => ({ ...p, annualReturnRate: e.target.value }))} min={0} max={100} step={0.1} />
               </div>
               {formError && <p className="md:col-span-2 text-sm text-destructive">{formError}</p>}
               <div className="md:col-span-2 flex gap-2">
-                <Button type="submit" disabled={saving}>{saving ? "กำลังบันทึก..." : "บันทึกเป้าหมาย"}</Button>
+                <Button type="submit" disabled={saving}>
+                  {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-1" />กำลังบันทึก…</> : "บันทึกเป้าหมาย"}
+                </Button>
                 <Button type="button" variant="outline" onClick={() => { setShowForm(false); setFormError(""); }}>ยกเลิก</Button>
               </div>
             </form>
@@ -190,14 +256,17 @@ export default function GoalsPage() {
         <div className="grid md:grid-cols-2 gap-4">
           {goals.map(g => <GoalCard key={g.id} goal={g} onDelete={handleDelete} />)}
         </div>
-      ) : (
+      ) : !showForm ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
             <Target className="h-12 w-12 text-muted-foreground/30" />
-            <p className="text-muted-foreground text-sm">ยังไม่มีเป้าหมายการเงิน<br />กด "เพิ่มเป้าหมาย" เพื่อเริ่มต้น</p>
+            <p className="text-muted-foreground text-sm">ยังไม่มีเป้าหมายการเงิน<br />เริ่มตั้งเป้าหมายแรกของคุณเลย!</p>
+            <Button variant="outline" onClick={() => setShowForm(true)}>
+              <Plus className="h-4 w-4 mr-1" />เพิ่มเป้าหมายแรก
+            </Button>
           </CardContent>
         </Card>
-      )}
+      ) : null}
     </div>
   );
 }

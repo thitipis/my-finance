@@ -727,6 +727,24 @@ export default function FinancialPlanPage() {
       </div>
 
       {/* Step content */}
+      {/* Live mini-summary — always visible */}
+      <div className={`flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-xl text-sm border ${
+        result.corpusNeeded === 0 ? "bg-muted/40 border-muted" :
+        result.onTrack ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20" :
+                         "bg-red-50 border-red-200 dark:bg-red-950/20"
+      }`}>
+        <span className="font-medium text-muted-foreground">คาดการณ์ (ตอนเกษียณอายุ {plan.retirementAge} ปี):</span>
+        <span className="font-bold text-blue-600">{thb(result.projectedWealth)}</span>
+        <span className="text-muted-foreground">/</span>
+        <span className="font-medium">{thb(result.corpusNeeded)} ที่ต้องการ</span>
+        {result.corpusNeeded > 0 && (
+          <span className={`ml-auto font-semibold ${
+            result.onTrack ? "text-emerald-600" : "text-red-500"
+          }`}>
+            {result.onTrack ? "✓ อยู่ในเส้นทาง" : `⚠️ ขาด ${thb(Math.abs(result.surplus))}`}
+          </span>
+        )}
+      </div>
       <div>
         {step === 1 && <Step1 plan={plan} update={update} />}
         {step === 2 && <Step2 plan={plan} update={update} />}
