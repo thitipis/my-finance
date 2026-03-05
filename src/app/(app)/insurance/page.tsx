@@ -101,7 +101,8 @@ export default function InsurancePage() {
         });
       }
       setLoading(false);
-      if (recRes.data) setRecommendations(recRes.data as Recommendation[]);
+      const recData = recRes.data?.recommendations ?? recRes.recommendations ?? recRes.data ?? [];
+      setRecommendations(Array.isArray(recData) ? recData : []);
       setRecLoading(false);
     }).catch(() => { setLoading(false); setRecLoading(false); });
   }, []);
