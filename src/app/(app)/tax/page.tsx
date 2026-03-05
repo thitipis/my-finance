@@ -1,11 +1,10 @@
 "use client";
-import { useState, useEffect } from "react";
-import { Calculator, ChevronDown, ChevronUp, Info, Sparkles } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Calculator, ChevronDown, ChevronUp, Info, Sparkles, Database, Save, CheckCircle2, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import type { TaxCalculationResult } from "@/types";
 
@@ -26,31 +25,59 @@ interface DeductionTypeConfig {
   maxRateOfIncome: number | null;
 }
 
+interface TaxYearOption {
+  id: string;
+  year: number;
+  labelTh: string;
+}
+
+// Map FinancialProfile field names → deduction type codes
+const PROFILE_DEDUCTION_MAP: Record<string, string> = {
+  lifeInsurancePremium:         "life_insurance",
+  healthInsurancePremium:       "health_insurance",
+  parentHealthInsurancePremium: "parent_health_insurance",
+  annuityInsurancePremium:      "annuity_insurance",
+  spouseLifeInsurancePremium:   "spouse_life_insurance",
+  rmfAmount:                    "rmf_fund",
+  ssfAmount:                    "ssf_fund",
+  thaiEsgAmount:                "thai_esg",
+  ltfAmount:                    "ltf_fund",
+};
+
 export default function TaxPage() {
-  const [year, setYear] = useState(2025);
-  const [years, setYears] = useState<{ year: number; labelTh: string }[]>([]);
-  const [filingStatus, setFilingStatus] = useState<FilingStatus>("single");
+  const [year, setYear]                   = useState(2025);
+  const [years, setYears]                 = useState<TaxYearOption[]>([]);
+  const [filingStatus, setFilingStatus]   = useState<FilingStatus>("single");
   const [deductionTypes, setDeductionTypes] = useState<DeductionTypeConfig[]>([]);
   const [showAllDeductions, setShowAllDeductions] = useState(false);
 
   // Income fields
-  const [annualSalary, setAnnualSalary] = useState("");
-  const [bonus, setBonus] = useState("");
-  const [otherIncome, setOtherIncome] = useState("");
-  const [spouseIncome, setSpouseIncome] = useState("");
-  const [withheldTax, setWithheldTax] = useState("");
+  const [annualSalary, setAnnualSalary]   = useState("");
+  const [bonus, setBonus]                 = useState("");
+  const [otherIncome, setOtherIncome]     = useState("");
+  const [spouseIncome, setSpouseIncome]   = useState("");
+  const [withheldTax, setWithheldTax]     = useState("");
   const [providentFund, setProvidentFund] = useState("");
   const [socialSecurity, setSocialSecurity] = useState("");
-  const [numChildren, setNumChildren] = useState("0");
-  const [numParents, setNumParents] = useState("0");
+  const [numChildren, setNumChildren]     = useState("0");
+  const [numParents, setNumParents]       = useState("0");
 
   // Deduction amounts
   const [deductionAmounts, setDeductionAmounts] = useState<Record<string, string>>({});
 
   // Results
-  const [result, setResult] = useState<TaxCalculationResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [result, setResult]       = useState<TaxCalculationResult | null>(null);
+  const [lastBody, setLastBody]   = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState("");
+
+  // Profile loading
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [profileLoaded, setProfileLoaded]   = useState(false);
+
+  // Save result
+  const [savingResult, setSavingResult]   = useState(false);
+  const [savedResultId, setSavedResultId] = useState<string | null>(null);
 
   // Load tax years + config
   useEffect(() => {
@@ -69,9 +96,50 @@ export default function TaxPage() {
 
   const num = (v: string) => parseFloat(v.replace(/,/g, "")) || 0;
 
+  const handleLoadProfile = useCallback(async () => {
+    setLoadingProfile(true);
+    try {
+      const res = await fetch("/api/user/financial-profile");
+      const data = await res.json();
+      const p = data.data;
+      if (!p) return;
+
+      // Populate simple income fields
+      if (p.filingStatus) setFilingStatus(p.filingStatus as FilingStatus);
+      if (p.annualSalary  != null) setAnnualSalary(String(p.annualSalary));
+      if (p.bonus         != null) setBonus(String(p.bonus));
+      if (p.otherIncome   != null) setOtherIncome(String(p.otherIncome));
+      if (p.spouseIncome  != null) setSpouseIncome(String(p.spouseIncome));
+      if (p.withheldTax   != null) setWithheldTax(String(p.withheldTax));
+      if (p.socialSecurity      != null) setSocialSecurity(String(p.socialSecurity));
+      if (p.providentFundAmount != null) setProvidentFund(String(p.providentFundAmount));
+      if (p.numChildren   != null) setNumChildren(String(p.numChildren));
+      if (p.numParents    != null) setNumParents(String(p.numParents));
+
+      // Populate deduction amounts by code
+      const newDeductions: Record<string, string> = { ...deductionAmounts };
+      for (const [profileKey, code] of Object.entries(PROFILE_DEDUCTION_MAP)) {
+        const val = p[profileKey];
+        if (val != null && Number(val) > 0) {
+          const dt = deductionTypes.find((d) => d.code === code);
+          if (dt) newDeductions[dt.id] = String(val);
+        }
+      }
+      setDeductionAmounts(newDeductions);
+      setProfileLoaded(true);
+      setResult(null);
+      setSavedResultId(null);
+    } catch {
+      // silently ignore
+    } finally {
+      setLoadingProfile(false);
+    }
+  }, [deductionTypes, deductionAmounts]);
+
   const handleCalculate = async () => {
     setLoading(true);
     setError("");
+    setSavedResultId(null);
     try {
       const body = {
         year,
@@ -100,6 +168,7 @@ export default function TaxPage() {
       const data = await res.json();
       if (data.success) {
         setResult(data.data);
+        setLastBody(body as Record<string, unknown>);
       } else {
         setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่");
       }
@@ -110,17 +179,71 @@ export default function TaxPage() {
     }
   };
 
+  const handleSaveResult = async () => {
+    if (!result || !lastBody) return;
+    setSavingResult(true);
+    try {
+      const taxYearId = years.find((y) => y.year === year)?.id;
+      if (!taxYearId) throw new Error("No year ID");
+
+      const payload = {
+        taxYearId,
+        inputSnapshot: lastBody,
+        totalIncome: result.grossIncome,
+        totalDeductions: result.expenseDeduction + result.personalAllowances + result.otherDeductions,
+        netIncome: result.taxableIncome,
+        taxOwed: result.taxBeforeCredit,
+        withheldTax: result.withheldTax,
+        taxRefund: result.isRefund ? Math.abs(result.taxOwed) : -Math.abs(result.taxOwed),
+        effectiveRate: result.effectiveRate,
+        marginalRate: result.marginalBracket,
+      };
+      const res = await fetch("/api/tax/results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.data?.id) setSavedResultId(data.data.id);
+    } catch {
+      // ignore
+    } finally {
+      setSavingResult(false);
+    }
+  };
+
   const visibleDeductions = showAllDeductions ? deductionTypes : deductionTypes.slice(0, 4);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Calculator className="h-6 w-6 text-blue-500" />
-          คำนวณภาษี
-        </h1>
-        <p className="text-muted-foreground text-sm">ภาษีเงินได้บุคคลธรรมดา (ภงด.91)</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Calculator className="h-6 w-6 text-blue-500" />
+            คำนวณภาษี
+          </h1>
+          <p className="text-muted-foreground text-sm">ภาษีเงินได้บุคคลธรรมดา (ภงด.91)</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLoadProfile}
+          disabled={loadingProfile || deductionTypes.length === 0}
+          className="shrink-0"
+        >
+          {loadingProfile
+            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />กำลังโหลด...</>
+            : <><Database className="h-4 w-4 mr-2" />โหลดจากข้อมูลของฉัน</>
+          }
+        </Button>
       </div>
+
+      {profileLoaded && (
+        <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          โหลดข้อมูลจากโปรไฟล์การเงินของคุณแล้ว — ตรวจสอบและแก้ไขก่อนคำนวณ
+        </div>
+      )}
 
       <div className="grid md:grid-cols-2 gap-6">
         {/* ─ Left: Inputs ─ */}
@@ -307,6 +430,21 @@ export default function TaxPage() {
                 </CardContent>
               </Card>
 
+              {/* Save result */}
+              {savedResultId ? (
+                <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  บันทึกผลการคำนวณแล้ว — แสดงในหน้า Dashboard
+                </div>
+              ) : (
+                <Button variant="outline" className="w-full" onClick={handleSaveResult} disabled={savingResult}>
+                  {savingResult
+                    ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />กำลังบันทึก...</>
+                    : <><Save className="h-4 w-4 mr-2" />บันทึกผลการคำนวณ</>
+                  }
+                </Button>
+              )}
+
               {/* Unused deduction room */}
               {result.breakdown.unusedDeductionRoom.length > 0 && (
                 <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10">
@@ -341,3 +479,4 @@ export default function TaxPage() {
     </div>
   );
 }
+

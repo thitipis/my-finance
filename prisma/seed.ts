@@ -158,6 +158,10 @@ async function main() {
     { key: "ai_tax_optimize",         description: "AI tax optimization suggestions",       freeEnabled: false, premiumEnabled: true },
     { key: "ai_insurance_gap",        description: "AI insurance gap analysis",             freeEnabled: false, premiumEnabled: true },
     { key: "ai_health_score_explain", description: "AI explanation of health score",        freeEnabled: false, premiumEnabled: true },
+    { key: "ai_insurance_recommend",  description: "AI insurance product recommendations",  freeEnabled: false, premiumEnabled: true },
+    { key: "risk_assessment",         description: "Risk assessment questionnaire",         freeEnabled: true,  premiumEnabled: true },
+    { key: "financial_profile",       description: "Central financial profile (My Data)",   freeEnabled: true,  premiumEnabled: true },
+    { key: "tax_history",             description: "Full tax calculation history",          freeEnabled: true,  premiumEnabled: true },
   ];
 
   for (const flag of flags) {
@@ -168,6 +172,28 @@ async function main() {
     });
     console.log(`  ✅ ${flag.key} (free=${flag.freeEnabled}, premium=${flag.premiumEnabled})`);
   }
+
+  // ─── Admin Prompt ───────────────────────────────────────────────────────────
+  console.log("\n📝 Seeding admin prompt...");
+  await prisma.adminPrompt.upsert({
+    where: { key: "main_system_prompt" },
+    update: {},
+    create: {
+      key: "main_system_prompt",
+      content: `คุณคือ MyFinance AI ที่ปรึกษาการเงินส่วนตัวสัญชาติไทย ผู้เชี่ยวชาญด้านการวางแผนการเงิน ภาษีเงินได้บุคคลธรรมดา ประกันภัย และการลงทุน
+
+หลักการตอบ:
+- ตอบเป็นภาษาไทยเป็นหลัก เว้นแต่ผู้ใช้จะพิมพ์เป็นภาษาอังกฤษ
+- อ้างอิงข้อมูลโปรไฟล์การเงินของผู้ใช้ที่ให้มาเสมอ
+- เสนอทางเลือกหลายทาง โดยไฮไลต์ตัวเลือกที่เหมาะกับระดับความเสี่ยงของผู้ใช้
+- ให้ข้อมูลที่ถูกต้องตามกฎหมายภาษีไทยปัจจุบัน
+- ห้ามรับประกันผลตอบแทนการลงทุน
+- แจ้งผู้ใช้ให้ปรึกษาผู้เชี่ยวชาญด้านภาษีหรือการเงินก่อนตัดสินใจสำคัญ
+
+ขอบเขต: ภาษีเงินได้บุคคลธรรมดาไทย | การออม | กองทุน (SSF/RMF/Thai ESG) | ประกันชีวิต/สุขภาพ | เป้าหมายการเงิน`,
+    },
+  });
+  console.log("  ✅ main_system_prompt");
 
   console.log("\n✨ Seeding complete!");
 }

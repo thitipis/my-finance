@@ -41,6 +41,12 @@ enum AuditAction {
   delete
 }
 
+enum RiskLevel {
+  conservative
+  moderate
+  aggressive
+}
+
 // ─── User Tables ─────────────────────────────────────────────────────────────
 
 model User {
@@ -59,6 +65,10 @@ model User {
   goals            Goal[]
   insuranceData    InsuranceData?
   usageEvents      UsageEvent[]
+  financialProfile FinancialProfile?
+  riskAssessment   RiskAssessment?
+  taxResults       TaxResult[]
+  aiSettings       AiSettings?
 
   @@map("users")
 }
@@ -124,15 +134,21 @@ model Goal {
 }
 
 model InsuranceData {
-  id                          String   @id @default(uuid())
-  userId                      String   @unique @map("user_id")
-  // Annual premiums (used for tax deduction auto-fill)
-  lifeInsurancePremium        Decimal  @default(0) @map("life_insurance_premium") @db.Decimal(15, 2)
-  healthInsurancePremium      Decimal  @default(0) @map("health_insurance_premium") @db.Decimal(15, 2)
-  parentHealthInsurancePremium Decimal @default(0) @map("parent_health_insurance_premium") @db.Decimal(15, 2)
-  annuityInsurancePremium     Decimal  @default(0) @map("annuity_insurance_premium") @db.Decimal(15, 2)
-  spouseLifeInsurancePremium  Decimal  @default(0) @map("spouse_life_insurance_premium") @db.Decimal(15, 2)
-  updatedAt                   DateTime @updatedAt @map("updated_at")
+  id                           String   @id @default(uuid())
+  userId                       String   @unique @map("user_id")
+  // Annual premiums (kept for backward-compat; canonical source is FinancialProfile)
+  lifeInsurancePremium         Decimal  @default(0) @map("life_insurance_premium") @db.Decimal(15, 2)
+  healthInsurancePremium       Decimal  @default(0) @map("health_insurance_premium") @db.Decimal(15, 2)
+  parentHealthInsurancePremium Decimal  @default(0) @map("parent_health_insurance_premium") @db.Decimal(15, 2)
+  annuityInsurancePremium      Decimal  @default(0) @map("annuity_insurance_premium") @db.Decimal(15, 2)
+  spouseLifeInsurancePremium   Decimal  @default(0) @map("spouse_life_insurance_premium") @db.Decimal(15, 2)
+  // Coverage amounts (for gap analysis)
+  lifeCoverageAmount           Decimal  @default(0) @map("life_coverage_amount") @db.Decimal(15, 2)
+  healthCoveragePerYear        Decimal  @default(0) @map("health_coverage_per_year") @db.Decimal(15, 2)
+  hasAccidentInsurance         Boolean  @default(false) @map("has_accident_insurance")
+  hasCriticalIllness           Boolean  @default(false) @map("has_critical_illness")
+  hasDisabilityInsurance       Boolean  @default(false) @map("has_disability_insurance")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -154,6 +170,7 @@ model TaxYear {
   deductionLimits   DeductionLimit[]
   taxInputs         TaxInput[]
   deductionEntries  TaxDeductionEntry[]
+  taxResults        TaxResult[]
 
   @@map("tax_years")
 }
@@ -273,3 +290,127 @@ model UsageEvent {
 
   @@map("usage_events")
 }
+
+// ─── Financial Profile (Central User Data) ───────────────────────────────────
+
+model FinancialProfile {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  // Personal
+  filingStatus          FilingStatus @default(single) @map("filing_status")
+  numChildren           Int          @default(0) @map("num_children")
+  numParents            Int          @default(0) @map("num_parents")
+  numDisabledDependents Int          @default(0) @map("num_disabled_dependents")
+
+  // Income (annual baseline)
+  annualSalary Decimal @default(0) @map("annual_salary") @db.Decimal(15, 2)
+  bonus        Decimal @default(0) @db.Decimal(15, 2)
+  otherIncome  Decimal @default(0) @map("other_income") @db.Decimal(15, 2)
+  spouseIncome Decimal @default(0) @map("spouse_income") @db.Decimal(15, 2)
+  withheldTax  Decimal @default(0) @map("withheld_tax") @db.Decimal(15, 2)
+
+  // Payroll deductions
+  socialSecurity      Decimal @default(0) @map("social_security") @db.Decimal(15, 2)
+  providentFundRate   Decimal @default(0) @map("provident_fund_rate") @db.Decimal(5, 2)
+  providentFundAmount Decimal @default(0) @map("provident_fund_amount") @db.Decimal(15, 2)
+
+  // Insurance premiums (annual)
+  lifeInsurancePremium         Decimal @default(0) @map("life_insurance_premium") @db.Decimal(15, 2)
+  healthInsurancePremium       Decimal @default(0) @map("health_insurance_premium") @db.Decimal(15, 2)
+  parentHealthInsurancePremium Decimal @default(0) @map("parent_health_insurance_premium") @db.Decimal(15, 2)
+  annuityInsurancePremium      Decimal @default(0) @map("annuity_insurance_premium") @db.Decimal(15, 2)
+  spouseLifeInsurancePremium   Decimal @default(0) @map("spouse_life_insurance_premium") @db.Decimal(15, 2)
+
+  // Investment deductions
+  ltfAmount     Decimal @default(0) @map("ltf_amount") @db.Decimal(15, 2)
+  rmfAmount     Decimal @default(0) @map("rmf_amount") @db.Decimal(15, 2)
+  ssfAmount     Decimal @default(0) @map("ssf_amount") @db.Decimal(15, 2)
+  thaiEsgAmount Decimal @default(0) @map("thai_esg_amount") @db.Decimal(15, 2)
+
+  // Liabilities
+  totalDebt          Decimal @default(0) @map("total_debt") @db.Decimal(15, 2)
+  monthlyDebtPayment Decimal @default(0) @map("monthly_debt_payment") @db.Decimal(15, 2)
+
+  // Emergency fund & living expenses
+  emergencyFundAmount Decimal @default(0) @map("emergency_fund_amount") @db.Decimal(15, 2)
+  monthlyExpenses     Decimal @default(0) @map("monthly_expenses") @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("financial_profiles")
+}
+
+// ─── Risk Assessment ──────────────────────────────────────────────────────────
+
+model RiskAssessment {
+  id        String    @id @default(uuid())
+  userId    String    @unique @map("user_id")
+  answers   Json      // [{questionId, answer, score}]
+  score     Int       @default(0)
+  riskLevel RiskLevel @map("risk_level")
+  takenAt   DateTime  @default(now()) @map("taken_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("risk_assessments")
+}
+
+// ─── Tax Results (full calculation history) ───────────────────────────────────
+
+model TaxResult {
+  id        String @id @default(uuid())
+  userId    String @map("user_id")
+  taxYearId String @map("tax_year_id")
+
+  // Snapshot of inputs used for this calculation
+  inputSnapshot Json @map("input_snapshot")
+
+  // Computed outputs
+  totalIncome     Decimal @map("total_income") @db.Decimal(15, 2)
+  totalDeductions Decimal @map("total_deductions") @db.Decimal(15, 2)
+  netIncome       Decimal @map("net_income") @db.Decimal(15, 2)
+  taxOwed         Decimal @map("tax_owed") @db.Decimal(15, 2)
+  withheldTax     Decimal @map("withheld_tax") @db.Decimal(15, 2)
+  taxRefund       Decimal @map("tax_refund") @db.Decimal(15, 2) // positive=refund, negative=pay more
+  effectiveRate   Decimal @map("effective_rate") @db.Decimal(5, 2)
+  marginalRate    Decimal @map("marginal_rate") @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear TaxYear @relation(fields: [taxYearId], references: [id])
+
+  @@map("tax_results")
+}
+
+// ─── AI Settings (per user) ───────────────────────────────────────────────────
+
+model AiSettings {
+  id           String   @id @default(uuid())
+  userId       String   @unique @map("user_id")
+  toneLevel    Int      @default(3) @map("tone_level") // 1=gentle/encouraging, 5=direct/blunt
+  customPrompt String?  @map("custom_prompt") @db.Text
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_settings")
+}
+
+// ─── Admin System Prompt ──────────────────────────────────────────────────────
+
+model AdminPrompt {
+  id        String   @id @default(uuid())
+  key       String   @unique @db.VarChar(50) // e.g. "main_system_prompt"
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("admin_prompts")
+}
+

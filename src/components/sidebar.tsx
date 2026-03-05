@@ -1,27 +1,25 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import {
-  Calculator,
   LayoutDashboard,
+  Database,
+  ChevronDown,
+  ChevronRight,
+  Calculator,
   Target,
   Shield,
   MessageSquareText,
   Settings,
   TrendingUp,
   LogOut,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { href: "/dashboard",  label: "แดชบอร์ด",       icon: LayoutDashboard },
-  { href: "/tax",        label: "คำนวณภาษี",       icon: Calculator },
-  { href: "/goals",      label: "เป้าหมายการเงิน", icon: Target },
-  { href: "/insurance",  label: "ประกัน",           icon: Shield },
-  { href: "/ai-chat",    label: "AI ที่ปรึกษา",    icon: MessageSquareText },
-  { href: "/settings",   label: "ตั้งค่า",          icon: Settings },
-];
+const financeToolPaths = ["/tax", "/insurance", "/goals"];
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -29,6 +27,9 @@ export default function Sidebar() {
   const user = session?.user;
   const displayName = user?.name ?? user?.email ?? "";
   const avatar = displayName[0]?.toUpperCase() ?? "U";
+
+  const isFinanceTool = financeToolPaths.some((p) => pathname.startsWith(p));
+  const [toolsOpen, setToolsOpen] = useState(isFinanceTool);
 
   return (
     <aside className="hidden md:flex flex-col w-60 min-h-screen border-r bg-card px-4 py-6">
@@ -38,23 +39,42 @@ export default function Sidebar() {
         <span className="text-xl font-bold text-primary">MyFinance</span>
       </Link>
 
-      {/* Nav items */}
+      {/* Nav */}
       <nav className="flex flex-col gap-1 flex-1">
-        {navItems.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              pathname.startsWith(href)
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            )}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </Link>
-        ))}
+        {/* Dashboard */}
+        <NavItem href="/dashboard" label="แดชบอร์ด" icon={LayoutDashboard} active={pathname === "/dashboard"} />
+
+        {/* My Data */}
+        <NavItem href="/my-data" label="ข้อมูลของฉัน" icon={Database} active={pathname.startsWith("/my-data")} />
+
+        {/* Finance Tools (collapsible) */}
+        <button
+          onClick={() => setToolsOpen((o) => !o)}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium w-full transition-colors",
+            isFinanceTool
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <Wrench className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">เครื่องมือการเงิน</span>
+          {toolsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        </button>
+
+        {toolsOpen && (
+          <div className="ml-4 flex flex-col gap-1 border-l pl-3">
+            <NavItem href="/tax"       label="คำนวณภาษี"       icon={Calculator}  active={pathname.startsWith("/tax")} />
+            <NavItem href="/insurance" label="วิเคราะห์ประกัน" icon={Shield}      active={pathname.startsWith("/insurance")} />
+            <NavItem href="/goals"     label="เป้าหมายการเงิน" icon={Target}      active={pathname.startsWith("/goals")} />
+          </div>
+        )}
+
+        {/* AI Advisor */}
+        <NavItem href="/ai-chat" label="AI ที่ปรึกษา" icon={MessageSquareText} active={pathname.startsWith("/ai-chat")} />
+
+        {/* Settings */}
+        <NavItem href="/settings" label="ตั้งค่าบัญชี" icon={Settings} active={pathname.startsWith("/settings")} />
       </nav>
 
       {/* User section */}
@@ -79,5 +99,26 @@ export default function Sidebar() {
         </div>
       )}
     </aside>
+  );
+}
+
+function NavItem({
+  href, label, icon: Icon, active,
+}: {
+  href: string; label: string; icon: React.ElementType; active: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {label}
+    </Link>
   );
 }
