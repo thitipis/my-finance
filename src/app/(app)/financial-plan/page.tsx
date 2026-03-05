@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   MapPin, ChevronRight, ChevronLeft, Save, Loader2, CheckCircle2,
   TrendingUp, AlertCircle, Home, Car, GraduationCap, Landmark,
+  Shield, BarChart3, Flame, Zap, Globe, Coins, Star,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -422,10 +423,115 @@ function Step2({ plan, update }: { plan: Plan; update: (k: keyof Plan, v: Plan[k
   );
 }
 
-function Step3({ plan, update, result }: {
+// ─── Investment Strategies ───────────────────────────────────────────────────
+
+type Strategy = {
+  id: string;
+  label: string;
+  sublabel: string;
+  expectedReturn: number;
+  riskLevel: string;
+  suitableForRisk: number[];
+  icon: React.ElementType;
+  color: string;
+  bg: string;
+  border: string;
+  instruments: string[];
+  aiInsight: string;
+};
+
+const STRATEGIES: Strategy[] = [
+  {
+    id: "ultra-safe",
+    label: "อนุรักษ์นิยมสูงสุด",
+    sublabel: "เน้นความปลอดภัย 100%",
+    expectedReturn: 2,
+    riskLevel: "ต่ำมาก",
+    suitableForRisk: [1],
+    icon: Shield,
+    color: "text-slate-600",
+    bg: "bg-slate-50",
+    border: "border-slate-300",
+    instruments: ["เงินฝากประจำ", "พันธบัตรรัฐบาล", "กองทุนตลาดเงิน"],
+    aiInsight: "เหมาะกับผู้ที่ยอมรับความเสี่ยงต่ำมาก เน้นรักษาเงินต้นให้ปลอดภัย ผลตอบแทนอาจต่ำกว่าเงินเฟ้อในระยะยาว",
+  },
+  {
+    id: "conservative",
+    label: "อนุรักษ์นิยม",
+    sublabel: "ตราสารหนี้เป็นหลัก",
+    expectedReturn: 4,
+    riskLevel: "ต่ำ",
+    suitableForRisk: [1, 2],
+    icon: Coins,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    border: "border-blue-300",
+    instruments: ["กองทุนตราสารหนี้", "หุ้นกู้เอกชน", "หุ้นปันผลสูง SET"],
+    aiInsight: "ผสมผสานตราสารหนี้ 70-80% กับหุ้นปันผล สร้างกระแสเงินสดสม่ำเสมอ ความผันผวนต่ำ เหมาะกับระยะเวลาลงทุนสั้น-กลาง",
+  },
+  {
+    id: "balanced",
+    label: "สมดุล",
+    sublabel: "หุ้น + ตราสารหนี้ 50/50",
+    expectedReturn: 7,
+    riskLevel: "ปานกลาง",
+    suitableForRisk: [2, 3],
+    icon: BarChart3,
+    color: "text-emerald-600",
+    bg: "bg-emerald-50",
+    border: "border-emerald-300",
+    instruments: ["หุ้น SET50", "กองทุนผสม", "REITs", "ตราสารหนี้"],
+    aiInsight: "กลยุทธ์ถ่วงน้ำหนักหุ้น-ตราสารหนี้ 50:50 ให้ผลตอบแทนใกล้เคียงตลาดหุ้นไทยระยะยาว ความผันผวนพอรับได้",
+  },
+  {
+    id: "growth",
+    label: "เน้นการเติบโต",
+    sublabel: "หุ้นไทย + ต่างประเทศ",
+    expectedReturn: 10,
+    riskLevel: "ค่อนข้างสูง",
+    suitableForRisk: [3, 4],
+    icon: TrendingUp,
+    color: "text-orange-600",
+    bg: "bg-orange-50",
+    border: "border-orange-300",
+    instruments: ["หุ้น SET", "กองทุน LTF/RMF", "ETF ต่างประเทศ", "หุ้นเติบโต"],
+    aiInsight: "กระจายลงทุนในหุ้นไทยและต่างประเทศ 70-80% เน้นหุ้นเติบโต ผลตอบแทนดีในระยะยาว แต่ต้องรับความผันผวนระยะสั้นได้",
+  },
+  {
+    id: "aggressive",
+    label: "เชิงรุก",
+    sublabel: "หุ้นเติบโตสูง + ต่างประเทศ",
+    expectedReturn: 13,
+    riskLevel: "สูง",
+    suitableForRisk: [4, 5],
+    icon: Flame,
+    color: "text-red-600",
+    bg: "bg-red-50",
+    border: "border-red-200",
+    instruments: ["หุ้น Growth SET", "US S&P500 ETF", "กองทุน Global Equity", "Thematic ETF"],
+    aiInsight: "เน้นหุ้นเติบโตสูงทั้งในและต่างประเทศ ให้ผลตอบแทนดีที่สุดในระยะยาว 10+ ปี ต้องทนต่อการขาดทุนชั่วคราว 30-40% ได้",
+  },
+  {
+    id: "global-tech",
+    label: "เทคโนโลยีโลก",
+    sublabel: "AI + Tech + Digital Assets",
+    expectedReturn: 16,
+    riskLevel: "สูงมาก",
+    suitableForRisk: [5],
+    icon: Zap,
+    color: "text-violet-600",
+    bg: "bg-violet-50",
+    border: "border-violet-300",
+    instruments: ["Nasdaq-100 ETF", "Thematic AI/Tech", "Global Tech stocks", "Crypto (small%)"],
+    aiInsight: "กลยุทธ์เชิงรุกสุด ลงทุนในธุรกิจเทคโนโลยีและนวัตกรรมระดับโลก ศักยภาพผลตอบแทนสูงมาก แต่ความผันผวนสูงมากเช่นกัน เหมาะกับผู้มีระยะลงทุน 15+ ปี",
+  },
+];
+
+function Step3({ plan, update, result, riskScore }: {
   plan: Plan;
   update: (k: keyof Plan, v: Plan[keyof Plan]) => void;
   result: Projection;
+  riskScore: number | null;
 }) {
   const [useTargetOverride, setUseTargetOverride] = useState(plan.targetWealthOverride !== null);
 
@@ -450,11 +556,6 @@ function Step3({ plan, update, result }: {
                 value={plan.monthlyInvestable}
                 onChange={v => update("monthlyInvestable", v)}
                 format={v => `฿${v.toLocaleString("th-TH")}`} />
-
-              <Slider label="ผลตอบแทนคาดหวัง (%/ปี)" sublabel="ตลาดหุ้นไทยเฉลี่ยระยะยาว ~7-9%"
-                min={1} max={20} step={0.5} value={plan.expectedReturn}
-                onChange={v => update("expectedReturn", v)}
-                format={v => `${v}%`} />
 
               <Slider label="อัตราเงินเฟ้อ (%/ปี)" sublabel="ประมาณการ BOT ระยะกลาง ~2-3%"
                 min={0} max={10} step={0.5} value={plan.inflationRate}
@@ -481,6 +582,96 @@ function Step3({ plan, update, result }: {
                   </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* ─ Strategy Picker ─ */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Globe className="h-4 w-4 text-primary" />
+                กลยุทธ์การลงทุน
+              </CardTitle>
+              <CardDescription className="text-xs">
+                เลือกกลยุทธ์ที่เหมาะกับโปรไฟล์ความเสี่ยงของคุณ • ดูผลกระทบต่อแผนแบบ real-time
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {riskScore && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs">
+                  <Star className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                  <span className="text-muted-foreground">ระดับความเสี่ยงของคุณ:</span>
+                  <span className="font-semibold text-primary">
+                    {riskScore === 1 ? "อนุรักษ์นิยมสูง (1/5)" :
+                     riskScore === 2 ? "อนุรักษ์นิยม (2/5)" :
+                     riskScore === 3 ? "สมดุล (3/5)" :
+                     riskScore === 4 ? "เน้นเติบโต (4/5)" :
+                                      "เชิงรุก (5/5)"}
+                  </span>
+                  <span className="text-muted-foreground ml-auto">⭐ = เหมาะกับคุณ</span>
+                </div>
+              )}
+              {STRATEGIES.map(s => {
+                const isSelected = Math.abs(plan.expectedReturn - s.expectedReturn) < 0.5;
+                const isSuitable = riskScore !== null && s.suitableForRisk.includes(riskScore);
+                const projWealth = (() => {
+                  const r = s.expectedReturn / 100;
+                  const n = Math.max(1, plan.retirementAge - plan.currentAge);
+                  const fv = plan.currentSavings * Math.pow(1 + r, n);
+                  const fvPMT = plan.monthlyInvestable > 0
+                    ? plan.monthlyInvestable * ((Math.pow(1 + r / 12, n * 12) - 1) / (r / 12))
+                    : 0;
+                  return Math.round(fv + fvPMT);
+                })();
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => update("expectedReturn", s.expectedReturn)}
+                    className={cn(
+                      "w-full text-left rounded-xl border-2 p-3 transition-all duration-150",
+                      isSelected
+                        ? `${s.border} ${s.bg} shadow-sm`
+                        : "border-muted hover:border-muted-foreground/40 bg-background"
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={cn("p-1.5 rounded-lg shrink-0", s.bg, s.border, "border")}>
+                        <s.icon className={cn("h-4 w-4", s.color)} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm">{s.label}</span>
+                          <span className={cn("text-xs font-medium", s.color)}>
+                            {s.expectedReturn}%/ปี
+                          </span>
+                          {isSuitable && (
+                            <span className="ml-auto text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-medium flex items-center gap-1 shrink-0">
+                              <Star className="h-3 w-3" />เหมาะกับคุณ
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{s.sublabel}</p>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{s.aiInsight}</p>
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {s.instruments.map(inst => (
+                            <span key={inst} className={cn("text-xs px-1.5 py-0.5 rounded", s.bg, s.color, "font-medium")}>
+                              {inst}
+                            </span>
+                          ))}
+                        </div>
+                        {isSelected && (
+                          <p className="text-xs font-semibold text-blue-600 mt-1.5">
+                            → ความมั่งคั่งคาดการณ์: {thb(projWealth)}
+                          </p>
+                        )}
+                      </div>
+                      {isSelected && (
+                        <CheckCircle2 className={cn("h-4 w-4 shrink-0 mt-0.5", s.color)} />
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </CardContent>
           </Card>
         </div>
@@ -593,6 +784,7 @@ export default function FinancialPlanPage() {
   const [loading, setLoading]   = useState(true);
   const [saving,  setSaving]    = useState(false);
   const [saved,   setSaved]     = useState(false);
+  const [riskScore, setRiskScore] = useState<number | null>(null);
 
   const update = useCallback(<K extends keyof Plan>(k: K, v: Plan[K]) => {
     setPlan(prev => ({ ...prev, [k]: v }));
@@ -600,6 +792,17 @@ export default function FinancialPlanPage() {
   }, []);
 
   useEffect(() => {
+    // Fetch risk score alongside plan + profile
+    fetch("/api/user/risk-assessment")
+      .then(r => r.json())
+      .then(d => {
+        if (d.data?.riskLevel) {
+          const map: Record<string, number> = { conservative: 2, moderate: 3, aggressive: 5 };
+          setRiskScore(map[d.data.riskLevel] ?? null);
+        }
+      })
+      .catch(() => {});
+
     Promise.all([
       fetch("/api/user/financial-plan").then(r => r.json()),
       fetch("/api/user/financial-profile").then(r => r.json()),
@@ -748,7 +951,7 @@ export default function FinancialPlanPage() {
       <div>
         {step === 1 && <Step1 plan={plan} update={update} />}
         {step === 2 && <Step2 plan={plan} update={update} />}
-        {step === 3 && <Step3 plan={plan} update={update} result={result} />}
+        {step === 3 && <Step3 plan={plan} update={update} result={result} riskScore={riskScore} />}
       </div>
 
       {/* Navigation */}
