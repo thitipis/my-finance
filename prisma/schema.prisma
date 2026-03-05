@@ -323,11 +323,19 @@ model FinancialProfile {
   annuityInsurancePremium      Decimal @default(0) @map("annuity_insurance_premium") @db.Decimal(15, 2)
   spouseLifeInsurancePremium   Decimal @default(0) @map("spouse_life_insurance_premium") @db.Decimal(15, 2)
 
-  // Investment deductions
+  // Investment deductions (annual contributions)
   ltfAmount     Decimal @default(0) @map("ltf_amount") @db.Decimal(15, 2)
   rmfAmount     Decimal @default(0) @map("rmf_amount") @db.Decimal(15, 2)
   ssfAmount     Decimal @default(0) @map("ssf_amount") @db.Decimal(15, 2)
   thaiEsgAmount Decimal @default(0) @map("thai_esg_amount") @db.Decimal(15, 2)
+
+  // Personal investment portfolio (current market value)
+  goldAmount         Decimal @default(0) @map("gold_amount") @db.Decimal(15, 2)
+  cryptoAmount       Decimal @default(0) @map("crypto_amount") @db.Decimal(15, 2)
+  etfAmount          Decimal @default(0) @map("etf_amount") @db.Decimal(15, 2)
+  thaiStockAmount    Decimal @default(0) @map("thai_stock_amount") @db.Decimal(15, 2)
+  foreignStockAmount Decimal @default(0) @map("foreign_stock_amount") @db.Decimal(15, 2)
+  otherInvestAmount  Decimal @default(0) @map("other_invest_amount") @db.Decimal(15, 2)
 
   // Liabilities
   totalDebt          Decimal @default(0) @map("total_debt") @db.Decimal(15, 2)

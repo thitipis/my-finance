@@ -25,11 +25,18 @@ const FinancialProfileSchema = z.object({
   parentHealthInsurancePremium: z.coerce.number().min(0).optional(),
   annuityInsurancePremium: z.coerce.number().min(0).optional(),
   spouseLifeInsurancePremium: z.coerce.number().min(0).optional(),
-  // Investment deductions
+  // Investment deductions (annual contributions)
   ltfAmount: z.coerce.number().min(0).optional(),
   rmfAmount: z.coerce.number().min(0).optional(),
   ssfAmount: z.coerce.number().min(0).optional(),
   thaiEsgAmount: z.coerce.number().min(0).optional(),
+  // Personal investment portfolio (current market value)
+  goldAmount: z.coerce.number().min(0).optional(),
+  cryptoAmount: z.coerce.number().min(0).optional(),
+  etfAmount: z.coerce.number().min(0).optional(),
+  thaiStockAmount: z.coerce.number().min(0).optional(),
+  foreignStockAmount: z.coerce.number().min(0).optional(),
+  otherInvestAmount: z.coerce.number().min(0).optional(),
   // Liabilities
   totalDebt: z.coerce.number().min(0).optional(),
   monthlyDebtPayment: z.coerce.number().min(0).optional(),

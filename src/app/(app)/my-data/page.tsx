@@ -10,7 +10,8 @@ import {
   User, Banknote, ShieldCheck, TrendingUp, AlertTriangle,
   Save, Loader2, CheckCircle2, Wallet, Building2, Heart,
   ShieldAlert, Activity, UserCheck, AlertCircle, ExternalLink,
-  Calendar, MapPin,
+  Calendar, MapPin, Coins, BarChart3, Globe, Layers, Bitcoin,
+  ChevronDown, ChevronUp, Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -39,6 +40,13 @@ interface FinancialProfile {
   rmfAmount: number;
   ssfAmount: number;
   thaiEsgAmount: number;
+  // Personal portfolio (market value)
+  goldAmount: number;
+  cryptoAmount: number;
+  etfAmount: number;
+  thaiStockAmount: number;
+  foreignStockAmount: number;
+  otherInvestAmount: number;
   totalDebt: number;
   monthlyDebtPayment: number;
   emergencyFundAmount: number;
@@ -52,6 +60,7 @@ const defaultProfile: FinancialProfile = {
   lifeInsurancePremium: 0, healthInsurancePremium: 0, parentHealthInsurancePremium: 0,
   annuityInsurancePremium: 0, spouseLifeInsurancePremium: 0,
   ltfAmount: 0, rmfAmount: 0, ssfAmount: 0, thaiEsgAmount: 0,
+  goldAmount: 0, cryptoAmount: 0, etfAmount: 0, thaiStockAmount: 0, foreignStockAmount: 0, otherInvestAmount: 0,
   totalDebt: 0, monthlyDebtPayment: 0, emergencyFundAmount: 0, monthlyExpenses: 0,
 };
 
@@ -320,36 +329,286 @@ function InsuranceTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof F
 
 // ─── Tab: Investment ──────────────────────────────────────────────────────────
 
+const TAX_FUNDS = [
+  {
+    key: "rmfAmount" as keyof FinancialProfile,
+    label: "RMF", sublabel: "Retirement Mutual Fund",
+    icon: Landmark, color: "text-violet-600", bg: "bg-violet-50 dark:bg-violet-950/30", border: "border-violet-200",
+    capFn: (income: number) => Math.min(income * 0.30, 500_000),
+    hint: "30% ของรายได้ รวมกลุ่ม ≤ 500,000",
+  },
+  {
+    key: "ssfAmount" as keyof FinancialProfile,
+    label: "SSF", sublabel: "Super Savings Fund",
+    icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", border: "border-blue-200",
+    capFn: (income: number) => Math.min(income * 0.30, 200_000),
+    hint: "30% ของรายได้ ≤ 200,000",
+  },
+  {
+    key: "thaiEsgAmount" as keyof FinancialProfile,
+    label: "Thai ESG", sublabel: "Thai ESG Fund",
+    icon: Globe, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200",
+    capFn: (income: number) => Math.min(income * 0.30, 300_000),
+    hint: "30% ของรายได้ ≤ 300,000",
+  },
+  {
+    key: "ltfAmount" as keyof FinancialProfile,
+    label: "LTF", sublabel: "กองทุนเก่า (pre-2020)",
+    icon: Coins, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-950/30", border: "border-amber-200",
+    capFn: (income: number) => Math.min(income * 0.15, 500_000),
+    hint: "15% ของรายได้ ≤ 500,000 (สำหรับผู้ที่ซื้อก่อน 2020)",
+  },
+  {
+    key: "providentFundAmount" as keyof FinancialProfile,
+    label: "PVD", sublabel: "กองทุนสำรองเลี้ยงชีพ",
+    icon: Building2, color: "text-indigo-600", bg: "bg-indigo-50 dark:bg-indigo-950/30", border: "border-indigo-200",
+    capFn: (income: number) => Math.min(income * 0.15, 500_000),
+    hint: "ฝั่งลูกจ้าง ≤ 15% หรือ 500,000 (รวมกลุ่ม)",
+  },
+];
+
+const PERSONAL_ASSETS = [
+  {
+    key: "goldAmount" as keyof FinancialProfile,
+    emoji: "🏅", label: "ทองคำ", sublabel: "Gold / Gold Savings",
+    color: "text-yellow-700", bg: "bg-yellow-50 dark:bg-yellow-950/30", border: "border-yellow-200",
+    hint: "ทองคำแท่ง บัญชีทองคำ กองทุนทอง",
+    trend: "+5.2%", trendUp: true,
+  },
+  {
+    key: "cryptoAmount" as keyof FinancialProfile,
+    emoji: "₿", label: "Crypto", sublabel: "Bitcoin / ETH / Alt",
+    color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-950/30", border: "border-orange-200",
+    hint: "มูลค่าตลาด ณ วันนี้ (THB)",
+    trend: "+18.7%", trendUp: true,
+  },
+  {
+    key: "etfAmount" as keyof FinancialProfile,
+    emoji: "📊", label: "ETF", sublabel: "ETF ไทย / ต่างประเทศ",
+    color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-950/30", border: "border-cyan-200",
+    hint: "S&P500 ETF, SET50 ETF, Gold ETF ฯลฯ",
+    trend: "+12.1%", trendUp: true,
+  },
+  {
+    key: "thaiStockAmount" as keyof FinancialProfile,
+    emoji: "🇹🇭", label: "หุ้นไทย", sublabel: "Thai Stocks (SET/MAI)",
+    color: "text-red-600", bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-200",
+    hint: "มูลค่าตลาดพอร์ตหุ้นไทย",
+    trend: "-2.3%", trendUp: false,
+  },
+  {
+    key: "foreignStockAmount" as keyof FinancialProfile,
+    emoji: "🌎", label: "หุ้นต่างประเทศ", sublabel: "Foreign Stocks (US/EU/JP)",
+    color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-950/30", border: "border-purple-200",
+    hint: "US Stocks, DCA Nasdaq ผ่าน broker ต่างประเทศ",
+    trend: "+9.4%", trendUp: true,
+  },
+  {
+    key: "otherInvestAmount" as keyof FinancialProfile,
+    emoji: "🏢", label: "อื่น ๆ", sublabel: "REITs / Bond / P2P / etc.",
+    color: "text-slate-600", bg: "bg-slate-50 dark:bg-slate-950/30", border: "border-slate-200",
+    hint: "REIT, ตราสารหนี้, P2P lending, ทรัพย์สินอื่น ๆ",
+    trend: "+3.8%", trendUp: true,
+  },
+];
+
 function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
+  const [view, setView] = useState<"tax" | "personal">("tax");
   const annualIncome = p.annualSalary + p.bonus + p.otherIncome;
-  const totalInvest  = p.rmfAmount + p.ssfAmount + p.thaiEsgAmount + p.ltfAmount;
-  const ssfCap  = Math.min(p.ssfAmount, 200000, annualIncome * 0.30);
-  const rmfCap  = Math.min(p.rmfAmount, annualIncome * 0.30);
-  const esgCap  = Math.min(p.thaiEsgAmount, 300000, annualIncome * 0.30);
-  const deductGroup = Math.min(ssfCap + rmfCap + esgCap + Math.min(p.ltfAmount, annualIncome * 0.15), 500000);
+
+  // Tax fund totals
+  const taxTotal   = (p.rmfAmount + p.ssfAmount + p.thaiEsgAmount + p.ltfAmount + p.providentFundAmount);
+  const ssfCap     = Math.min(p.ssfAmount, 200_000, annualIncome * 0.30);
+  const rmfCap     = Math.min(p.rmfAmount + p.providentFundAmount, annualIncome * 0.30, 500_000);
+  const esgCap     = Math.min(p.thaiEsgAmount, 300_000, annualIncome * 0.30);
+  const deductGrp  = Math.min(ssfCap + rmfCap + esgCap + Math.min(p.ltfAmount, annualIncome * 0.15), 500_000);
+
+  // Personal portfolio totals
+  const personal    = PERSONAL_ASSETS.map(a => ({ ...a, value: p[a.key] as number }));
+  const persTotal   = personal.reduce((s, a) => s + a.value, 0);
+  const grandTotal  = taxTotal + persTotal;
+
   return (
     <div className="space-y-4">
-      {totalInvest > 0 && (
-        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
-          <SummaryPill label="ลงทุนรวม/ปี" value={thb(totalInvest)} color="text-purple-600" />
-          <SummaryPill label="ลดหย่อนได้ (รวมกลุ่ม)" value={thb(deductGroup)} color="text-emerald-600" />
-          {annualIncome > 0 && <SummaryPill label="% ของรายได้" value={`${((totalInvest / annualIncome) * 100).toFixed(1)}%`} />}
+      {/* ── Zone Toggle ── */}
+      <div className="flex p-1 rounded-xl bg-muted/50 border gap-1">
+        {(["tax", "personal"] as const).map(v => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={cn(
+              "flex-1 rounded-lg py-2 text-sm font-semibold transition-all",
+              view === v
+                ? "bg-background shadow text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {v === "tax" ? "🏛️ กองทุนลดหย่อนภาษี" : "📈 พอร์ตลงทุนส่วนตัว"}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Grand Total Banner ── */}
+      {grandTotal > 0 && (
+        <div className="flex flex-wrap gap-4 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="รวมทุกสินทรัพย์" value={thb(grandTotal)} color="text-indigo-600" />
+          {taxTotal > 0 && <SummaryPill label="กองทุนภาษี/ปี" value={thb(taxTotal)} color="text-violet-600" />}
+          {persTotal > 0 && <SummaryPill label="พอร์ตส่วนตัว" value={thb(persTotal)} color="text-blue-600" />}
+          {annualIncome > 0 && <SummaryPill label="ลงทุน/รายได้" value={`${((grandTotal / annualIncome) * 100).toFixed(0)}%`} />}
         </div>
       )}
-      <SectionCard title="กองทุนลดหย่อนภาษี (บาท/ปี)" icon={TrendingUp} iconColor="text-purple-500">
-        <NumField label="RMF" value={p.rmfAmount} onChange={v => upd("rmfAmount", v)} hint="30% ของรายได้ รวมกลุ่มสูงสุด 500,000 บาท" />
-        <NumField label="SSF" value={p.ssfAmount} onChange={v => upd("ssfAmount", v)} hint="30% ของรายได้ สูงสุด 200,000 บาท" />
-        <NumField label="Thai ESG" value={p.thaiEsgAmount} onChange={v => upd("thaiEsgAmount", v)} hint="30% ของรายได้ สูงสุด 300,000 บาท" />
-        <NumField label="LTF (กองทุนเก่า)" value={p.ltfAmount} onChange={v => upd("ltfAmount", v)} hint="15% ของรายได้ สูงสุด 500,000 บาท" />
-      </SectionCard>
-      {totalInvest === 0 && (
-        <Card className="bg-purple-50/50 border-purple-200 dark:bg-purple-950/10">
-          <CardContent className="pt-4 pb-4 text-sm space-y-1">
-            <p className="font-semibold text-purple-700">📈 ยังไม่มีการลงทุน?</p>
-            <p className="text-muted-foreground">การลงทุนใน RMF/SSF/Thai ESG ช่วยลดภาษีได้สูงสุด 500,000 บาท พร้อมสร้างความมั่งคั่งระยะยาว</p>
-            <Link href="/ai-chat" className="text-primary underline underline-offset-2 block mt-1">ปรึกษา AI ที่ปรึกษา →</Link>
-          </CardContent>
-        </Card>
+
+      {/* ── Tax Fund Zone ── */}
+      {view === "tax" && (
+        <div className="space-y-3">
+          {deductGrp > 0 && (
+            <div className="rounded-xl bg-violet-50 dark:bg-violet-950/20 border border-violet-200 p-3 flex items-center gap-3">
+              <Landmark className="h-5 w-5 text-violet-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-violet-800 dark:text-violet-300">ลดหย่อนได้ {thb(deductGrp)}/ปี</p>
+                <p className="text-xs text-violet-600/70">
+                  {annualIncome > 0 ? `ยังเหลือสิทธิ์ได้อีก ${thb(Math.max(0, Math.min(annualIncome * 0.30, 500_000) - deductGrp))}` : "กรอกรายได้เพื่อดูสิทธิ์คงเหลือ"}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {TAX_FUNDS.map(fund => {
+            const Icon  = fund.icon;
+            const value = p[fund.key] as number;
+            const cap   = annualIncome > 0 ? fund.capFn(annualIncome) : null;
+            const pct   = cap && cap > 0 ? Math.min(100, (value / cap) * 100) : null;
+            const room  = cap ? Math.max(0, cap - value) : null;
+            return (
+              <div key={fund.key} className={cn(
+                "rounded-xl border p-4 transition-all",
+                value > 0 ? `${fund.bg} ${fund.border}` : "border-dashed border-muted-foreground/30"
+              )}>
+                <div className="flex items-start gap-3">
+                  <div className={cn("rounded-full p-2 shrink-0", value > 0 ? fund.bg : "bg-muted/50")}>
+                    <Icon className={cn("h-4 w-4", value > 0 ? fund.color : "text-muted-foreground")} />
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm">{fund.label}</span>
+                      <span className="text-xs text-muted-foreground">{fund.sublabel}</span>
+                      {value > 0 && cap !== null && (
+                        <span className={cn(
+                          "ml-auto text-xs font-medium px-2 py-0.5 rounded-full",
+                          pct! >= 100 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                        )}>
+                          {pct! >= 100 ? "ใช้ครบ ✓" : `${pct!.toFixed(0)}%`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs shrink-0 text-muted-foreground whitespace-nowrap">บาท/ปี</Label>
+                      <Input
+                        type="number" min={0}
+                        className="h-8 text-sm"
+                        value={value || ""}
+                        placeholder="0"
+                        onChange={e => upd(fund.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof fund.key])}
+                      />
+                    </div>
+                    {pct !== null && value > 0 && (
+                      <div className="space-y-1">
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full transition-all", pct >= 100 ? "bg-emerald-500" : "bg-violet-400")}
+                            style={{ width: `${Math.min(100, pct)}%` }}
+                          />
+                        </div>
+                        {room !== null && room > 0 && (
+                          <p className="text-xs text-muted-foreground">{fund.hint} · เหลือ {thb(room)}</p>
+                        )}
+                        {room === 0 && <p className="text-xs text-emerald-600">✓ ใช้สิทธิ์เต็มแล้ว!</p>}
+                      </div>
+                    )}
+                    {value === 0 && <p className="text-xs text-muted-foreground">{fund.hint}</p>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Personal Portfolio Zone ── */}
+      {view === "personal" && (
+        <div className="space-y-3">
+          {persTotal > 0 && (
+            <div className="rounded-xl border p-4 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">สัดส่วนพอร์ต</p>
+              <div className="h-4 rounded-full overflow-hidden flex gap-0.5">
+                {personal.filter(a => a.value > 0).map(a => (
+                  <div
+                    key={a.key}
+                    title={`${a.label}: ${((a.value / persTotal) * 100).toFixed(1)}%`}
+                    className={cn("h-full transition-all", a.bg.replace("50", "300").replace("dark:bg-", "").split(" ")[0])}
+                    style={{ width: `${(a.value / persTotal) * 100}%`, backgroundColor: undefined }}
+                  />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {personal.filter(a => a.value > 0).map(a => (
+                  <span key={a.key} className="text-xs flex items-center gap-1">
+                    <span>{a.emoji}</span>
+                    <span className="text-muted-foreground">{a.label}</span>
+                    <span className="font-semibold">{((a.value / persTotal) * 100).toFixed(0)}%</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {PERSONAL_ASSETS.map(asset => {
+              const value = p[asset.key] as number;
+              const alloc = persTotal > 0 ? (value / persTotal) * 100 : 0;
+              return (
+                <div key={asset.key} className={cn(
+                  "rounded-xl border p-4 transition-all space-y-3",
+                  value > 0 ? `${asset.bg} ${asset.border}` : "border-dashed border-muted-foreground/30 hover:border-muted-foreground/50"
+                )}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{asset.emoji}</span>
+                      <div>
+                        <p className="font-semibold text-sm">{asset.label}</p>
+                        <p className="text-xs text-muted-foreground">{asset.sublabel}</p>
+                      </div>
+                    </div>
+                    {value > 0 && (
+                      <div className="text-right">
+                        <p className={cn("text-xs font-bold", asset.trendUp ? "text-emerald-600" : "text-red-500")}>{asset.trend}</p>
+                        <p className="text-xs text-muted-foreground">{alloc.toFixed(0)}% ของพอร์ต</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">มูลค่าปัจจุบัน (บาท)</Label>
+                    <Input
+                      type="number" min={0}
+                      className="h-8 text-sm bg-background/70"
+                      value={value || ""}
+                      placeholder="0"
+                      onChange={e => upd(asset.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof asset.key])}
+                    />
+                  </div>
+                  {value === 0 && <p className="text-xs text-muted-foreground">{asset.hint}</p>}
+                </div>
+              );
+            })}
+          </div>
+
+          <Card className="bg-muted/30">
+            <CardContent className="pt-4 pb-4 text-sm space-y-1">
+              <p className="font-semibold">💡 อัปเดตมูลค่าพอร์ตทุกเดือน</p>
+              <p className="text-muted-foreground text-xs">MyFinance ใช้ข้อมูลนี้คำนวณแผนเกษียณและฉายภาพความมั่งคั่งระยะยาว ยิ่งข้อมูลแม่นยำ แผนยิ่งแม่นยำ</p>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );
@@ -549,6 +808,12 @@ export default function MyDataPage() {
           rmfAmount: Number(d.rmfAmount ?? 0),
           ssfAmount: Number(d.ssfAmount ?? 0),
           thaiEsgAmount: Number(d.thaiEsgAmount ?? 0),
+          goldAmount: Number(d.goldAmount ?? 0),
+          cryptoAmount: Number(d.cryptoAmount ?? 0),
+          etfAmount: Number(d.etfAmount ?? 0),
+          thaiStockAmount: Number(d.thaiStockAmount ?? 0),
+          foreignStockAmount: Number(d.foreignStockAmount ?? 0),
+          otherInvestAmount: Number(d.otherInvestAmount ?? 0),
           totalDebt: Number(d.totalDebt ?? 0),
           monthlyDebtPayment: Number(d.monthlyDebtPayment ?? 0),
           emergencyFundAmount: Number(d.emergencyFundAmount ?? 0),

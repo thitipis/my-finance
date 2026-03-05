@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   MapPin, Loader2, CheckCircle2, TrendingUp, Banknote,
-  ChevronRight, Target, Info, AlertCircle,
+  ChevronRight, Target, Info, AlertCircle, Pencil, ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -256,6 +256,99 @@ function buildSteps(p: ProfileData, plan: PlanData | null, risk: RiskData | null
   return steps;
 }
 
+// ─── Missing Data Detector ──────────────────────────────────────────────────────
+
+interface MissingItem {
+  label: string;
+  detail: string;
+  href: string;
+  priority: "critical" | "important" | "optional";
+}
+
+function computeMissing(profile: ProfileData | null, plan: PlanData | null, risk: RiskData | null): MissingItem[] {
+  const items: MissingItem[] = [];
+  if (!profile || (profile.annualSalary + profile.bonus + profile.otherIncome) === 0) {
+    items.push({ label: "รายได้", detail: "ยังไม่มีข้อมูลรายได้ — จำเป็นในทุกการคำนวณ", href: "/my-data?tab=income", priority: "critical" });
+  }
+  if (profile && profile.monthlyExpenses === 0) {
+    items.push({ label: "ค่าใช้จ่าย/เดือน", detail: "ใช้คำนวณกระแสเงินสดและเงินสำรอง", href: "/my-data?tab=income", priority: "critical" });
+  }
+  if (profile && profile.emergencyFundAmount === 0) {
+    items.push({ label: "เงินสำรองฉุกเฉิน", detail: "กรอกยอดเงินสำรองที่มีอยู่ (0 = ไม่มี หรือยังไม่ได้กรอก)", href: "/my-data?tab=debts", priority: "critical" });
+  }
+  if (!risk) {
+    items.push({ label: "ระดับความเสี่ยง", detail: "ยังไม่ได้ประเมิน — ใช้คำนวณพอร์ตลงทุนที่เหมาะสม", href: "/tools/risk", priority: "important" });
+  }
+  if (!plan?.currentAge || !plan?.retirementAge || !plan?.monthlyRetirementNeeds) {
+    items.push({ label: "ข้อมูลเกษียณ", detail: "อายุ, อายุเกษียณ, ค่าใช้จ่ายหลังเกษียณ — ใช้คำนวณการฉายภาพเกษียณ", href: "/my-data?tab=retirement", priority: "important" });
+  }
+  if (profile && profile.lifeInsurancePremium === 0 && profile.healthInsurancePremium === 0) {
+    items.push({ label: "ข้อมูลประกัน", detail: "ยังไม่ได้กรอกเบี้ยประกันชีวิต/สุขภาพ — ใช้คำนวณลดหย่อนภาษี", href: "/my-data?tab=insurance", priority: "optional" });
+  }
+  return items;
+}
+
+interface MissingBannerProps { items: MissingItem[]; }
+function MissingDataBanner({ items }: MissingBannerProps) {
+  const [open, setOpen] = useState(items.length > 0);
+  if (items.length === 0) return null;
+  const critical  = items.filter(i => i.priority === "critical").length;
+  const important = items.filter(i => i.priority === "important").length;
+  const color = critical > 0 ? "amber" : "blue";
+  return (
+    <div className={cn(
+      "rounded-xl border p-4 space-y-3",
+      color === "amber"
+        ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200"
+        : "bg-blue-50 dark:bg-blue-950/20 border-blue-200"
+    )}>
+      <button className="w-full flex items-center justify-between" onClick={() => setOpen(o => !o)}>
+        <div className="flex items-center gap-2">
+          <Pencil className={cn("h-4 w-4 shrink-0 mt-0.5", color === "amber" ? "text-amber-600" : "text-blue-600")} />
+          <div className="text-left">
+            <p className={cn("font-semibold text-sm", color === "amber" ? "text-amber-800 dark:text-amber-300" : "text-blue-800 dark:text-blue-300")}>
+              ข้อมูลที่ยังขาด {items.length} รายการ
+              {critical > 0 && <span className="ml-2 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">จำเป็น {critical}</span>}
+              {important > 0 && <span className="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">สำคัญ {important}</span>}
+            </p>
+            <p className={cn("text-xs mt-0.5", color === "amber" ? "text-amber-700/70" : "text-blue-600/70")}>
+              กรอกข้อมูลเพิ่มเติมให้ครบถ้วน — คำแนะนำจะแม่นยำขึ้น
+            </p>
+          </div>
+        </div>
+        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="grid sm:grid-cols-2 gap-2">
+          {items.map(item => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-start gap-2 rounded-lg border px-3 py-2 text-sm hover:opacity-80 transition-opacity",
+                item.priority === "critical"  ? "bg-red-50 border-red-200" :
+                item.priority === "important" ? "bg-amber-50 border-amber-200" :
+                "bg-muted/60 border-muted"
+              )}
+            >
+              <AlertCircle className={cn("h-3.5 w-3.5 shrink-0 mt-0.5",
+                item.priority === "critical"  ? "text-red-500" :
+                item.priority === "important" ? "text-amber-500" :
+                "text-muted-foreground"
+              )} />
+              <div className="min-w-0">
+                <p className="font-semibold text-xs">{item.label}</p>
+                <p className="text-xs text-muted-foreground truncate">{item.detail}</p>
+              </div>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 ml-auto" />
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Step Card UI ─────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<StepStatus, string> = {
@@ -401,6 +494,7 @@ export default function FinancialPlanPage() {
   const totalInvested = profile ? profile.rmfAmount + profile.ssfAmount + profile.thaiEsgAmount + profile.ltfAmount + profile.providentFundAmount : 0;
   const efMonths      = profile && profile.monthlyExpenses > 0 ? profile.emergencyFundAmount / profile.monthlyExpenses : null;
   const doneCount     = steps.filter(s => s.status === "done").length;
+  const missingItems  = useMemo(() => computeMissing(profile, plan, risk), [profile, plan, risk]);
 
   if (loading) return (
     <div className="flex justify-center py-24">
@@ -441,6 +535,9 @@ export default function FinancialPlanPage() {
         <Progress value={(doneCount / Math.max(steps.length, 1)) * 100} className="h-2 flex-1" />
         <span className="text-sm font-semibold shrink-0">{doneCount}/{steps.length}</span>
       </div>
+
+      {/* Missing Data Banner */}
+      <MissingDataBanner items={missingItems} />
 
       <div className="grid lg:grid-cols-[320px_1fr] gap-6 items-start">
         {/* ── Left: Situation panel ── */}
