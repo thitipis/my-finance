@@ -1,774 +1,349 @@
 "use client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  MapPin, ChevronRight, ChevronLeft, Save, Loader2, CheckCircle2,
-  TrendingUp, AlertCircle, Home, Car, GraduationCap, Landmark,
-  Shield, BarChart3, Flame, Zap, Globe, Coins, Star,
+  MapPin, Loader2, CheckCircle2, TrendingUp, Banknote,
+  ChevronRight, Target, Info, AlertCircle,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Plan {
-  currentAge: number;
-  maritalStatus: string;
-  numChildrenPlan: number;
-  retirementAge: number;
-  monthlyRetirementNeeds: number;
-  hasHomeGoal: boolean;
-  homePurchaseYears: number;
-  homeBudget: number;
-  hasCarGoal: boolean;
-  carPurchaseYears: number;
-  carBudget: number;
-  hasEducationGoal: boolean;
-  educationYears: number;
-  educationBudget: number;
-  emergencyFundMonths: number;
-  monthlyInvestable: number;
-  currentSavings: number;
-  expectedReturn: number;
-  inflationRate: number;
-  targetWealthOverride: number | null;
+interface ProfileData {
+  annualSalary: number; bonus: number; otherIncome: number;
+  monthlyExpenses: number; monthlyDebtPayment: number; totalDebt: number;
+  emergencyFundAmount: number;
+  rmfAmount: number; ssfAmount: number; thaiEsgAmount: number;
+  ltfAmount: number; providentFundAmount: number;
+  lifeInsurancePremium: number; healthInsurancePremium: number;
+  annuityInsurancePremium: number;
 }
 
-const DEFAULT_PLAN: Plan = {
-  currentAge: 30, maritalStatus: "single", numChildrenPlan: 0,
-  retirementAge: 60, monthlyRetirementNeeds: 50000,
-  hasHomeGoal: false, homePurchaseYears: 5, homeBudget: 3000000,
-  hasCarGoal: false,  carPurchaseYears: 2,  carBudget: 600000,
-  hasEducationGoal: false, educationYears: 15, educationBudget: 500000,
-  emergencyFundMonths: 6,
-  monthlyInvestable: 10000, currentSavings: 200000,
-  expectedReturn: 7, inflationRate: 3,
-  targetWealthOverride: null,
-};
-
-// ─── Projection engine ────────────────────────────────────────────────────────
-
-function calcFV(pv: number, monthlyRate: number, months: number, pmt: number): number {
-  if (months <= 0) return pv;
-  if (Math.abs(monthlyRate) < 1e-9) return pv + pmt * months;
-  const g = (1 + monthlyRate) ** months;
-  return pv * g + pmt * (g - 1) / monthlyRate;
+interface PlanData {
+  currentAge: number | null; retirementAge: number | null;
+  monthlyRetirementNeeds: number | null; expectedReturn: number | null;
+  currentSavings: number | null; monthlyInvestable: number | null;
 }
 
-function calcPMT(pv: number, monthlyRate: number, months: number, fv: number): number {
-  if (months <= 0) return 0;
-  if (Math.abs(monthlyRate) < 1e-9) return Math.max(0, (fv - pv) / months);
-  const g = (1 + monthlyRate) ** months;
-  return Math.max(0, (fv - pv * g) * monthlyRate / (g - 1));
+interface RiskData { riskLevel: "conservative" | "moderate" | "aggressive"; }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const thb  = (n: number) => `฿${Math.round(n).toLocaleString("th-TH")}`;
+const thbM = (n: number) =>
+  n >= 1_000_000 ? `฿${(n / 1_000_000).toFixed(1)}M`
+  : n >= 1_000   ? `฿${Math.round(n / 1_000)}K`
+  : thb(n);
+
+function getMarginalRate(income: number): number {
+  if (income <= 150_000)   return 0;
+  if (income <= 300_000)   return 0.05;
+  if (income <= 500_000)   return 0.10;
+  if (income <= 750_000)   return 0.15;
+  if (income <= 1_000_000) return 0.20;
+  if (income <= 2_000_000) return 0.25;
+  if (income <= 5_000_000) return 0.30;
+  return 0.35;
 }
 
-interface Projection {
-  projectedWealth: number;
-  corpusNeeded: number;
-  monthlyNeeded: number;
-  onTrack: boolean;
-  progressPct: number;
-  surplus: number;
-  timeline: { age: number; wealth: number }[];
-  milestones: { label: string; icon: React.ElementType; age: number; years: number; budget: number; canAfford: boolean }[];
-  emergencyTarget: number;
+function calcFV(pv: number, annualRate: number, years: number, monthlyPmt: number): number {
+  if (years <= 0) return pv;
+  const r = (1 + annualRate) ** (1 / 12) - 1;
+  if (Math.abs(r) < 1e-9) return pv + monthlyPmt * years * 12;
+  const g = (1 + r) ** (years * 12);
+  return pv * g + monthlyPmt * (g - 1) / r;
 }
 
-function project(p: Plan): Projection {
-  const years = Math.max(1, p.retirementAge - p.currentAge);
-  const months = years * 12;
-  const r = (1 + p.expectedReturn / 100) ** (1 / 12) - 1;
+// ─── Step Model ───────────────────────────────────────────────────────────────
 
-  // Corpus using 4% safe-withdrawal rule, inflation-adjusted to retirement
-  const inflationFactor = (1 + p.inflationRate / 100) ** years;
-  const annualNeeds = p.monthlyRetirementNeeds * 12 * inflationFactor;
-  const corpusNeeded = p.targetWealthOverride ?? (p.monthlyRetirementNeeds > 0 ? annualNeeds / 0.04 : 0);
+type StepStatus = "done" | "partial" | "todo";
+type Urgency    = "critical" | "important" | "good";
 
-  const projectedWealth = calcFV(p.currentSavings, r, months, p.monthlyInvestable);
-  const monthlyNeeded = corpusNeeded > 0 ? calcPMT(p.currentSavings, r, months, corpusNeeded) : 0;
-  const progressPct = corpusNeeded > 0 ? Math.min(100, Math.round(projectedWealth / corpusNeeded * 100)) : 100;
-
-  // Timeline (yearly snapshots)
-  const timeline = Array.from({ length: years + 1 }, (_, i) => ({
-    age: p.currentAge + i,
-    wealth: calcFV(p.currentSavings, r, i * 12, p.monthlyInvestable),
-  }));
-
-  const milestones: Projection["milestones"] = [];
-  if (p.hasHomeGoal && p.homePurchaseYears > 0) {
-    const w = calcFV(p.currentSavings, r, p.homePurchaseYears * 12, p.monthlyInvestable);
-    milestones.push({ label: "ซื้อบ้าน", icon: Home, age: p.currentAge + p.homePurchaseYears, years: p.homePurchaseYears, budget: p.homeBudget, canAfford: w >= p.homeBudget });
-  }
-  if (p.hasCarGoal && p.carPurchaseYears > 0) {
-    const w = calcFV(p.currentSavings, r, p.carPurchaseYears * 12, p.monthlyInvestable);
-    milestones.push({ label: "ซื้อรถ", icon: Car, age: p.currentAge + p.carPurchaseYears, years: p.carPurchaseYears, budget: p.carBudget, canAfford: w >= p.carBudget });
-  }
-  if (p.hasEducationGoal && p.educationYears > 0) {
-    const w = calcFV(p.currentSavings, r, p.educationYears * 12, p.monthlyInvestable);
-    milestones.push({ label: "ทุนการศึกษา", icon: GraduationCap, age: p.currentAge + p.educationYears, years: p.educationYears, budget: p.educationBudget, canAfford: w >= p.educationBudget });
-  }
-
-  const emergencyTarget = p.monthlyRetirementNeeds > 0
-    ? p.monthlyRetirementNeeds * p.emergencyFundMonths
-    : 0;
-
-  return {
-    projectedWealth, corpusNeeded, monthlyNeeded,
-    onTrack: projectedWealth >= corpusNeeded,
-    progressPct, surplus: projectedWealth - corpusNeeded,
-    timeline, milestones, emergencyTarget,
-  };
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const thb = (n: number) =>
-  n >= 1_000_000
-    ? `฿${(n / 1_000_000).toFixed(1)}M`
-    : n >= 1_000
-    ? `฿${(n / 1_000).toFixed(0)}K`
-    : `฿${n.toLocaleString("th-TH")}`;
-
-function Slider({
-  label, sublabel, min, max, step = 1, value, onChange, format,
-}: {
-  label: string; sublabel?: string; min: number; max: number; step?: number;
-  value: number; onChange: (v: number) => void; format?: (v: number) => string;
-}) {
-  const pct = ((value - min) / (max - min)) * 100;
-  return (
-    <div className="space-y-2">
-      <div className="flex justify-between items-baseline">
-        <Label className="text-sm font-medium">{label}</Label>
-        <span className="text-base font-bold text-primary">
-          {format ? format(value) : value}
-        </span>
-      </div>
-      {sublabel && <p className="text-xs text-muted-foreground -mt-1">{sublabel}</p>}
-      <div className="relative py-1">
-        <input
-          type="range" min={min} max={max} step={step}
-          value={value}
-          onChange={e => onChange(Number(e.target.value))}
-          className="w-full h-2 rounded-full appearance-none cursor-pointer bg-muted accent-primary"
-        />
-        <div className="flex justify-between text-xs text-muted-foreground mt-1">
-          <span>{format ? format(min) : min}</span>
-          <span>{format ? format(max) : max}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WealthChart({ timeline, corpusNeeded, retirementAge }: {
-  timeline: { age: number; wealth: number }[];
-  corpusNeeded: number;
-  retirementAge: number;
-}) {
-  const maxWealth = Math.max(corpusNeeded * 1.1, ...(timeline.map(t => t.wealth)));
-  const W = 480; const H = 160; const PX = 40; const PY = 16;
-  const cw = W - PX * 2; const ch = H - PY * 2;
-  const n = timeline.length;
-
-  const px = (i: number) => PX + (i / (n - 1)) * cw;
-  const py = (v: number) => PY + ch - (v / maxWealth) * ch;
-
-  const wealthPath = timeline.map((t, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(t.wealth).toFixed(1)}`).join(" ");
-
-  // Corpus horizontal line
-  const corpusY = py(corpusNeeded).toFixed(1);
-  const retIdx = timeline.findIndex(t => t.age >= retirementAge);
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" aria-label="wealth projection chart">
-      {/* Grid lines */}
-      {[0.25, 0.5, 0.75, 1].map(f => (
-        <line key={f} x1={PX} x2={W - PX} y1={py(maxWealth * f)} y2={py(maxWealth * f)}
-          stroke="currentColor" strokeOpacity={0.08} strokeWidth={1} />
-      ))}
-      {/* Corpus needed line */}
-      {corpusNeeded > 0 && (
-        <>
-          <line x1={PX} x2={W - PX} y1={corpusY} y2={corpusY}
-            stroke="#ef4444" strokeWidth={1.5} strokeDasharray="5,4" opacity={0.7} />
-          <text x={W - PX + 2} y={Number(corpusY) + 4} fontSize={9} fill="#ef4444" opacity={0.85}>เป้าหมาย</text>
-        </>
-      )}
-      {/* Retirement marker */}
-      {retIdx >= 0 && (
-        <line x1={px(retIdx)} x2={px(retIdx)} y1={PY} y2={H - PY}
-          stroke="#6366f1" strokeWidth={1.5} strokeDasharray="3,3" opacity={0.5} />
-      )}
-      {/* Wealth area fill */}
-      <defs>
-        <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
-        </linearGradient>
-      </defs>
-      <path d={`${wealthPath} L${px(n - 1).toFixed(1)},${H - PY} L${PX},${H - PY} Z`} fill="url(#wGrad)" />
-      <path d={wealthPath} stroke="#3b82f6" strokeWidth={2.5} fill="none" />
-      {/* Age labels on X */}
-      {timeline.filter((_, i) => i % Math.max(1, Math.floor(n / 5)) === 0).map((t, _, arr) => {
-        const i = timeline.indexOf(t);
-        return (
-          <text key={t.age} x={px(i)} y={H - 2} textAnchor="middle" fontSize={9} fill="currentColor" opacity={0.5}>
-            {t.age}
-          </text>
-        );
-      })}
-      {/* Y max label */}
-      <text x={PX - 2} y={PY + 6} textAnchor="end" fontSize={9} fill="currentColor" opacity={0.5}>
-        {thb(maxWealth)}
-      </text>
-    </svg>
-  );
-}
-
-// ─── Step components ──────────────────────────────────────────────────────────
-
-function Step1({ plan, update }: { plan: Plan; update: (k: keyof Plan, v: Plan[keyof Plan]) => void }) {
-  return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold">ขั้นที่ 1 — ข้อมูลส่วนตัว</h2>
-        <p className="text-sm text-muted-foreground">บอกเราเรื่องสถานการณ์ชีวิตของคุณ เพื่อวางแผนได้แม่นยำขึ้น</p>
-      </div>
-
-      <div className="grid sm:grid-cols-2 gap-4">
-        {/* Current age */}
-        <div className="space-y-1">
-          <Label>อายุปัจจุบัน (ปี)</Label>
-          <Input type="number" min={18} max={70} value={plan.currentAge || ""}
-            onChange={e => update("currentAge", parseInt(e.target.value) || 30)} placeholder="30" />
-        </div>
-
-        {/* Marital status */}
-        <div className="space-y-1">
-          <Label>สถานภาพ</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            value={plan.maritalStatus}
-            onChange={e => update("maritalStatus", e.target.value)}
-          >
-            <option value="single">โสด</option>
-            <option value="married">สมรส</option>
-            <option value="divorced">หย่าร้าง / แยกกัน</option>
-          </select>
-        </div>
-
-        {/* Children */}
-        <div className="space-y-1">
-          <Label>แผนจะมีบุตร (คน)</Label>
-          <Input type="number" min={0} max={10} value={plan.numChildrenPlan || ""}
-            onChange={e => update("numChildrenPlan", parseInt(e.target.value) || 0)} placeholder="0" />
-          <p className="text-xs text-muted-foreground">รวมบุตรที่มีอยู่แล้ว (ถ้ามี)</p>
-        </div>
-
-        {/* Monthly investable */}
-        <div className="space-y-1">
-          <Label>รายได้ที่ลงทุนได้ต่อเดือน (บาท)</Label>
-          <Input type="number" min={0} value={plan.monthlyInvestable || ""}
-            onChange={e => update("monthlyInvestable", parseFloat(e.target.value) || 0)} placeholder="เช่น 10,000" />
-          <p className="text-xs text-muted-foreground">หลังหักค่าใช้จ่ายทั้งหมดแล้ว</p>
-        </div>
-
-        {/* Current savings */}
-        <div className="space-y-1">
-          <Label>เงินออม / ลงทุนที่มีอยู่แล้ว (บาท)</Label>
-          <Input type="number" min={0} value={plan.currentSavings || ""}
-            onChange={e => update("currentSavings", parseFloat(e.target.value) || 0)} placeholder="เช่น 200,000" />
-        </div>
-
-        {/* Emergency fund months */}
-        <div className="space-y-1">
-          <Label>เป้าหมายเงินสำรอง (กี่เดือน)</Label>
-          <Input type="number" min={1} max={24} value={plan.emergencyFundMonths}
-            onChange={e => update("emergencyFundMonths", parseInt(e.target.value) || 6)} />
-          <p className="text-xs text-muted-foreground">แนะนำ 6 เดือนขึ้นไป</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Step2({ plan, update }: { plan: Plan; update: (k: keyof Plan, v: Plan[keyof Plan]) => void }) {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">ขั้นที่ 2 — เป้าหมายชีวิต</h2>
-        <p className="text-sm text-muted-foreground">ตั้งเป้าหมายทางการเงินที่สำคัญ ระบบจะช่วยคำนวณว่าต้องเก็บเงินเท่าไร</p>
-      </div>
-
-      {/* Retirement */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Landmark className="h-4 w-4 text-primary" />เกษียณอายุ
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <Label>อยากเกษียณตอนอายุ (ปี)</Label>
-            <Input type="number" min={40} max={80} value={plan.retirementAge}
-              onChange={e => update("retirementAge", parseInt(e.target.value) || 60)} />
-          </div>
-          <div className="space-y-1">
-            <Label>เงินที่ต้องการต่อเดือนหลังเกษียณ (บาท วันนี้)</Label>
-            <Input type="number" min={0} value={plan.monthlyRetirementNeeds || ""}
-              onChange={e => update("monthlyRetirementNeeds", parseFloat(e.target.value) || 0)}
-              placeholder="เช่น 50,000" />
-            <p className="text-xs text-muted-foreground">ตัวเลขในมูลค่าปัจจุบัน ระบบจะปรับตามเงินเฟ้อให้</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Home */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Home className="h-4 w-4 text-blue-500" />ซื้อบ้าน / อสังหาริมทรัพย์
-            </CardTitle>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" className="accent-primary"
-                checked={plan.hasHomeGoal}
-                onChange={e => update("hasHomeGoal", e.target.checked)} />
-              มีแผน
-            </label>
-          </div>
-        </CardHeader>
-        {plan.hasHomeGoal && (
-          <CardContent className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <Label>อีกกี่ปี</Label>
-              <Input type="number" min={1} value={plan.homePurchaseYears}
-                onChange={e => update("homePurchaseYears", parseInt(e.target.value) || 5)} />
-            </div>
-            <div className="space-y-1">
-              <Label>งบประมาณ (บาท)</Label>
-              <Input type="number" min={0} value={plan.homeBudget || ""}
-                onChange={e => update("homeBudget", parseFloat(e.target.value) || 0)} placeholder="3,000,000" />
-            </div>
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Car */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Car className="h-4 w-4 text-amber-500" />ซื้อรถยนต์
-            </CardTitle>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" className="accent-primary"
-                checked={plan.hasCarGoal}
-                onChange={e => update("hasCarGoal", e.target.checked)} />
-              มีแผน
-            </label>
-          </div>
-        </CardHeader>
-        {plan.hasCarGoal && (
-          <CardContent className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <Label>อีกกี่ปี</Label>
-              <Input type="number" min={1} value={plan.carPurchaseYears}
-                onChange={e => update("carPurchaseYears", parseInt(e.target.value) || 2)} />
-            </div>
-            <div className="space-y-1">
-              <Label>งบประมาณ (บาท)</Label>
-              <Input type="number" min={0} value={plan.carBudget || ""}
-                onChange={e => update("carBudget", parseFloat(e.target.value) || 0)} placeholder="600,000" />
-            </div>
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Education */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-emerald-500" />ทุนการศึกษาบุตร
-            </CardTitle>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" className="accent-primary"
-                checked={plan.hasEducationGoal}
-                onChange={e => update("hasEducationGoal", e.target.checked)} />
-              มีแผน
-            </label>
-          </div>
-        </CardHeader>
-        {plan.hasEducationGoal && (
-          <CardContent className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <Label>อีกกี่ปีที่ต้องใช้</Label>
-              <Input type="number" min={1} value={plan.educationYears}
-                onChange={e => update("educationYears", parseInt(e.target.value) || 15)} />
-            </div>
-            <div className="space-y-1">
-              <Label>งบประมาณต่อบุตร (บาท)</Label>
-              <Input type="number" min={0} value={plan.educationBudget || ""}
-                onChange={e => update("educationBudget", parseFloat(e.target.value) || 0)} placeholder="500,000" />
-            </div>
-          </CardContent>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-// ─── Investment Strategies ───────────────────────────────────────────────────
-
-type Strategy = {
+interface Step {
   id: string;
-  label: string;
-  sublabel: string;
-  expectedReturn: number;
-  riskLevel: string;
-  suitableForRisk: number[];
-  icon: React.ElementType;
-  color: string;
-  bg: string;
-  border: string;
-  instruments: string[];
-  aiInsight: string;
+  title: string;
+  status: StepStatus;
+  urgency: Urgency;
+  summary: string;
+  why: string;
+  how: string[];
+  benefit: string;
+  link?: { href: string; label: string };
+}
+
+// ─── Recommendation Engine ───────────────────────────────────────────────────
+
+function buildSteps(p: ProfileData, plan: PlanData | null, risk: RiskData | null): Step[] {
+  const steps: Step[] = [];
+  const annualIncome  = p.annualSalary + p.bonus + p.otherIncome;
+  const monthlyIncome = annualIncome / 12;
+  const monthlyFree   = monthlyIncome - p.monthlyExpenses - p.monthlyDebtPayment;
+  const marginalRate  = getMarginalRate(annualIncome);
+
+  const riskConfig = risk ? {
+    conservative: { label: "อนุรักษ์นิยม", portfolio: "ตราสารหนี้ 70% / หุ้น 30%",              ret: 4  },
+    moderate:     { label: "สมดุล",        portfolio: "หุ้น 50% / ตราสารหนี้ 35% / REITs 15%", ret: 7  },
+    aggressive:   { label: "เชิงรุก",      portfolio: "หุ้น 80% / สินทรัพย์ทางเลือก 20%",     ret: 10 },
+  }[risk.riskLevel] : null;
+
+  // ── Step 1: Emergency Fund ─────────────────────────────────────────────────
+  const efMonths = p.monthlyExpenses > 0 ? p.emergencyFundAmount / p.monthlyExpenses : 0;
+  const efTarget = p.monthlyExpenses * 6;
+  const efGap    = Math.max(0, efTarget - p.emergencyFundAmount);
+  steps.push({
+    id: "emergency",
+    title: "สร้างกองทุนฉุกเฉิน",
+    status: efMonths >= 6 ? "done" : efMonths >= 3 ? "partial" : "todo",
+    urgency: efMonths < 3 ? "critical" : efMonths < 6 ? "important" : "good",
+    summary: efMonths >= 6
+      ? `มีแล้ว ${efMonths.toFixed(1)} เดือน ✓`
+      : `มีอยู่ ${efMonths.toFixed(1)} เดือน — ขาดอีก ${thb(efGap)}`,
+    why: "กองทุนฉุกเฉินคือรากฐานของแผนการเงิน ป้องกันไม่ให้ต้องขายสินทรัพย์ลงทุนในยามฉุกเฉิน ควรมีอย่างน้อย 6 เดือนของรายจ่าย",
+    how: efMonths >= 6 ? ["✓ กองทุนฉุกเฉินเพียงพอแล้ว"] : [
+      `เก็บเพิ่มเดือนละ ${thb(Math.max(1000, Math.min(monthlyFree * 0.5, efGap / 12)))}`,
+      `เป้าหมาย: ${thb(efTarget)} (6 เดือน × ค่าใช้จ่าย ${thb(p.monthlyExpenses)})`,
+      "เก็บในบัญชีออมทรัพย์ดอกเบี้ยสูงหรือกองทุนตลาดเงิน (ถอนได้ทุกวัน)",
+    ],
+    benefit: efMonths >= 6 ? "พร้อมรับเหตุฉุกเฉินโดยไม่กระทบแผนลงทุน" : `เมื่อครบ ${thb(efTarget)} แล้ว นำเงินส่วนที่เหลือไปลงทุนได้เลย`,
+    link: { href: "/my-data?tab=debts", label: "อัปเดตยอดเงินสำรอง" },
+  });
+
+  // ── Step 2: Debt ──────────────────────────────────────────────────────────
+  if (p.totalDebt > 0 || p.monthlyDebtPayment > 0) {
+    const dti = monthlyIncome > 0 ? p.monthlyDebtPayment / monthlyIncome : 0;
+    steps.push({
+      id: "debt",
+      title: "จัดการภาระหนี้",
+      status: dti < 0.2 ? "done" : dti < 0.35 ? "partial" : "todo",
+      urgency: dti > 0.5 ? "critical" : dti > 0.35 ? "important" : "good",
+      summary: `DTI ${Math.round(dti * 100)}% — ${dti < 0.3 ? "อยู่ในเกณฑ์ดี" : "สูงเกินไป ควรเร่งปิด"}`,
+      why: "ดอกเบี้ยหนี้บัตรเครดิตและสินเชื่อส่วนบุคคลอยู่ที่ 18-28%/ปี สูงกว่าผลตอบแทนการลงทุนปกติ ควรปิดหนี้เหล่านี้ก่อนลงทุนเพิ่ม",
+      how: [
+        `ภาระผ่อนต่อเดือน: ${thb(p.monthlyDebtPayment)} = ${Math.round(dti * 100)}% ของรายได้ (เป้า < 30%)`,
+        "วิธี Avalanche: โอนเงินพิเศษไปปิดหนี้ดอกเบี้ยสูงสุดก่อน ประหยัดดอกเบี้ยได้มากสุด",
+        "หลีกเลี่ยงการก่อหนี้ใหม่ทุกชนิดระหว่างปิดหนี้",
+        dti > 0.3 ? `ลด DTI ให้ถึง 30% = ต้องลดผ่อนเดือนละ ${thb(p.monthlyDebtPayment - monthlyIncome * 0.3)}` : "✓ อยู่ในเกณฑ์ดี",
+      ],
+      benefit: `เมื่อปลดหนี้ได้ จะมีเงินลงทุนเพิ่ม ${thb(p.monthlyDebtPayment * 0.5)}-${thb(p.monthlyDebtPayment)}/เดือน`,
+      link: { href: "/my-data?tab=debts", label: "ดูข้อมูลหนี้สิน" },
+    });
+  }
+
+  // ── Step 3: Tax Optimization ──────────────────────────────────────────────
+  if (annualIncome > 150_000 && marginalRate > 0) {
+    const ssfRoom     = Math.max(0, Math.min(annualIncome * 0.30, 200_000) - p.ssfAmount);
+    const rmfRoom     = Math.max(0, Math.min(annualIncome * 0.30, 500_000) - p.rmfAmount);
+    const esgRoom     = Math.max(0, Math.min(annualIncome * 0.30, 300_000) - p.thaiEsgAmount);
+    const lifeRoom    = Math.max(0, 100_000  - p.lifeInsurancePremium);
+    const annuityRoom = Math.max(0, 200_000  - p.annuityInsurancePremium);
+    const totalRoom   = ssfRoom + rmfRoom + esgRoom + lifeRoom + annuityRoom;
+    const taxSaving   = Math.round(totalRoom * marginalRate);
+    const investRoom  = ssfRoom + rmfRoom + esgRoom;
+
+    const howList: string[] = [];
+    if (ssfRoom  > 0) howList.push(`SSF: ลงทุนเพิ่ม ${thb(ssfRoom)} → ประหยัดภาษี ${thb(Math.round(ssfRoom * marginalRate))}`);
+    if (rmfRoom  > 0) howList.push(`RMF: ลงทุนเพิ่ม ${thb(rmfRoom)} → ประหยัดภาษี ${thb(Math.round(rmfRoom * marginalRate))}`);
+    if (esgRoom  > 0) howList.push(`Thai ESG: ลงทุนเพิ่ม ${thb(esgRoom)} → ประหยัดภาษี ${thb(Math.round(esgRoom * marginalRate))}`);
+    if (lifeRoom > 0) howList.push(`ประกันชีวิต: เพิ่มเบี้ย ${thb(lifeRoom)} → ประหยัดภาษี ${thb(Math.round(lifeRoom * marginalRate))}`);
+    if (annuityRoom > 0) howList.push(`ประกันบำนาญ: เบี้ย ${thb(annuityRoom)} → ประหยัดภาษี ${thb(Math.round(annuityRoom * marginalRate))}`);
+
+    steps.push({
+      id: "tax",
+      title: "ลดหย่อนภาษีให้สูงสุดก่อนลงทุน",
+      status: totalRoom < 5_000 ? "done" : investRoom > 100_000 ? "todo" : "partial",
+      urgency: totalRoom < 5_000 ? "good" : investRoom > 50_000 ? "important" : "good",
+      summary: totalRoom < 5_000
+        ? "ใช้สิทธิ์ลดหย่อนครบแล้ว ✓"
+        : `ยังเหลือสิทธิ์ ${thb(totalRoom)} → ประหยัดภาษีได้ ${thb(taxSaving)}/ปี`,
+      why: `ขั้นภาษีของคุณ ${Math.round(marginalRate * 100)}% — ลงทุน SSF/RMF ทุก ฿1 ได้ภาษีคืนทันที ${Math.round(marginalRate * 100)} สตางค์ ก่อนที่ผลตอบแทนจะสะสม นี่คือผลตอบแทน "ฟรี" ที่ไม่ควรพลาด`,
+      how: howList.length > 0 ? howList : ["✓ ใช้สิทธิ์ลดหย่อนครบทุกประเภทแล้ว"],
+      benefit: totalRoom < 5_000
+        ? "เพิ่มประสิทธิภาพภาษีสูงสุดแล้ว"
+        : `ประหยัดภาษี ${thb(taxSaving)}/ปี และยังได้ผลตอบแทนจากการลงทุนเพิ่มอีก`,
+      link: { href: "/tax", label: "คำนวณภาษีโดยละเอียด" },
+    });
+  }
+
+  // ── Step 4: Invest Consistently ───────────────────────────────────────────
+  const totalInvested = p.rmfAmount + p.ssfAmount + p.thaiEsgAmount + p.ltfAmount + p.providentFundAmount;
+  const investRatio   = annualIncome > 0 ? totalInvested / annualIncome : 0;
+  steps.push({
+    id: "invest",
+    title: "ลงทุนสม่ำเสมอตามระดับความเสี่ยง",
+    status: investRatio >= 0.15 ? "done" : investRatio > 0 ? "partial" : "todo",
+    urgency: totalInvested === 0 ? "important" : "good",
+    summary: risk
+      ? `ระดับ: ${riskConfig?.label} · ลงทุน ${thb(totalInvested)}/ปี (${Math.round(investRatio * 100)}% รายได้)`
+      : `ลงทุนแล้ว ${thb(totalInvested)}/ปี — ยังไม่ได้ประเมินความเสี่ยง`,
+    why: "ลงทุนสม่ำเสมอทุกเดือน (DCA) ลดความเสี่ยงจากการเข้าผิดจังหวะ ดอกเบี้ยทบต้นทำงานดีที่สุดเมื่อเริ่มเร็วและสม่ำเสมอ",
+    how: [
+      riskConfig ? `พอร์ตที่เหมาะกับคุณ: ${riskConfig.portfolio}` : "ทำแบบประเมินความเสี่ยงก่อนเพื่อรับคำแนะนำพอร์ตที่เหมาะ",
+      monthlyFree > 0
+        ? `ตั้ง DCA อัตโนมัติ ${thb(Math.round(monthlyFree * 0.7))}/เดือน (70% ของเงินคงเหลือ)`
+        : "ลดค่าใช้จ่ายเพื่อสร้างเงินลงทุน",
+      investRatio < 0.15
+        ? `เป้าหมาย: ลงทุน 15% ของรายได้ = ${thb(annualIncome * 0.15)}/ปี (ปัจจุบัน ${Math.round(investRatio * 100)}%)`
+        : "✓ ลงทุนถึง 15% ของรายได้แล้ว",
+      "SSF, RMF, Thai ESG ได้ทั้งผลตอบแทนและลดหย่อนภาษี — เริ่มที่นี่ก่อน",
+    ],
+    benefit: riskConfig
+      ? `ลงทุน ${thb(Math.round(monthlyFree * 0.7))}/เดือน ตามพอร์ต ${riskConfig.label} คาดผลตอบแทน ~${riskConfig.ret}%/ปี`
+      : "สร้างความมั่งคั่งระยะยาวด้วยพลังดอกเบี้ยทบต้น",
+    link: risk ? { href: "/tools/risk", label: "ดูผลประเมินความเสี่ยง" } : { href: "/tools/risk", label: "ประเมินความเสี่ยงตอนนี้" },
+  });
+
+  // ── Step 5: Retirement Projection ────────────────────────────────────────
+  if (plan?.currentAge && plan?.retirementAge && plan?.monthlyRetirementNeeds) {
+    const yrs       = Math.max(1, plan.retirementAge - plan.currentAge);
+    const ret       = ((plan.expectedReturn ?? riskConfig?.ret ?? 7)) / 100;
+    const pv        = plan.currentSavings ?? (p.emergencyFundAmount / 2);
+    const pmt       = plan.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
+    const projected = calcFV(pv, ret, yrs, pmt);
+    const realNeeds = plan.monthlyRetirementNeeds * Math.pow(1.03, yrs);
+    const corpus    = (realNeeds * 12) / 0.04;
+    const pct       = corpus > 0 ? Math.min(100, Math.round((projected / corpus) * 100)) : 100;
+    const onTrack   = projected >= corpus;
+    const gap       = Math.max(0, corpus - projected);
+    const r12       = (1 + ret) ** (1 / 12) - 1;
+    const fvF       = Math.abs(r12) > 1e-9 ? ((1 + r12) ** (yrs * 12) - 1) / r12 : yrs * 12;
+    const pvFV      = pv * (1 + r12) ** (yrs * 12);
+    const addNeeded = Math.max(0, (corpus - pvFV) / fvF);
+
+    steps.push({
+      id: "retirement",
+      title: "ฉายภาพแผนเกษียณ",
+      status: onTrack ? "done" : pct >= 60 ? "partial" : "todo",
+      urgency: onTrack ? "good" : pct < 50 ? "critical" : "important",
+      summary: onTrack
+        ? `อยู่ในเส้นทาง ✓ คาด ${thbM(projected)} เมื่ออายุ ${plan.retirementAge} ปี`
+        : `ถึงเป้า ${pct}% — ขาดอีก ${thbM(gap)}`,
+      why: `เกษียณอายุ ${plan.retirementAge} ปี (อีก ${yrs} ปี) ใช้จ่าย ${thb(plan.monthlyRetirementNeeds)}/เดือน → ต้องการ corpus ${thbM(corpus)} ตามกฎ 4%`,
+      how: onTrack ? [
+        `✓ คาดการณ์ความมั่งคั่ง: ${thbM(projected)}`,
+        `เป้าหมาย corpus: ${thbM(corpus)}`,
+        "รักษาอัตราออมและลงทุนในระดับนี้ต่อไป ทบทวนแผนทุกปี",
+      ] : [
+        `คาดการณ์ปัจจุบัน ${thbM(projected)} vs ต้องการ ${thbM(corpus)}`,
+        addNeeded > 0 ? `ต้องเพิ่มการออม ${thb(addNeeded)}/เดือน เพื่อให้ถึงเป้า` : "",
+        `หรือปรับพอร์ตเป็นเชิงรุกขึ้น — ผลตอบแทนเพิ่ม 1% ทำให้ corpus เพิ่ม ~${Math.round(yrs * 3)}%`,
+        `หรือลดค่าใช้จ่ายหลังเกษียณ จาก ${thb(plan.monthlyRetirementNeeds)} เป็น ${thb(Math.round(plan.monthlyRetirementNeeds * (projected / corpus)))}`,
+      ].filter(Boolean),
+      benefit: onTrack
+        ? "แผนเกษียณอยู่ในเส้นทาง"
+        : addNeeded > 0 ? `เพิ่มออม ${thb(addNeeded)}/เดือน → เกษียณได้ตามแผน` : "ปรับกลยุทธ์เพื่อถึงเป้าหมาย",
+      link: { href: "/my-data?tab=retirement", label: "แก้ไขข้อมูลเกษียณ" },
+    });
+  } else {
+    steps.push({
+      id: "retirement",
+      title: "กำหนดแผนเกษียณ",
+      status: "todo",
+      urgency: "important",
+      summary: "ยังไม่ได้กำหนดข้อมูลเกษียณ",
+      why: "ยิ่งเริ่มวางแผนเกษียณเร็ว ยิ่งต้องออมน้อยลงต่อเดือน เพราะดอกเบี้ยทบต้นมีเวลาทำงานนานขึ้น",
+      how: [
+        "กรอกอายุปัจจุบัน, อายุเกษียณเป้าหมาย, ค่าใช้จ่ายหลังเกษียณ",
+        "ระบบจะคำนวณว่าต้องออมเดือนละเท่าไหร่และคุณอยู่ในเส้นทางหรือไม่",
+      ],
+      benefit: "รู้ตัวเลขที่ชัดเจน ออมได้ถูกต้อง ไม่มากไม่น้อยเกินไป",
+      link: { href: "/my-data?tab=retirement", label: "กำหนดข้อมูลเกษียณ →" },
+    });
+  }
+
+  return steps;
+}
+
+// ─── Step Card UI ─────────────────────────────────────────────────────────────
+
+const STATUS_STYLE: Record<StepStatus, string> = {
+  done:    "bg-emerald-100 text-emerald-700 border-emerald-200",
+  partial: "bg-amber-100 text-amber-700 border-amber-200",
+  todo:    "bg-red-100 text-red-600 border-red-200",
+};
+const STATUS_LABEL: Record<StepStatus, string> = {
+  done: "เสร็จแล้ว", partial: "กำลังดำเนินการ", todo: "ยังไม่ทำ",
+};
+const URGENCY_BORDER: Record<Urgency, string> = {
+  critical: "border-l-red-500", important: "border-l-amber-400", good: "border-l-emerald-400",
 };
 
-const STRATEGIES: Strategy[] = [
-  {
-    id: "ultra-safe",
-    label: "อนุรักษ์นิยมสูงสุด",
-    sublabel: "เน้นความปลอดภัย 100%",
-    expectedReturn: 2,
-    riskLevel: "ต่ำมาก",
-    suitableForRisk: [1],
-    icon: Shield,
-    color: "text-slate-600",
-    bg: "bg-slate-50",
-    border: "border-slate-300",
-    instruments: ["เงินฝากประจำ", "พันธบัตรรัฐบาล", "กองทุนตลาดเงิน"],
-    aiInsight: "เหมาะกับผู้ที่ยอมรับความเสี่ยงต่ำมาก เน้นรักษาเงินต้นให้ปลอดภัย ผลตอบแทนอาจต่ำกว่าเงินเฟ้อในระยะยาว",
-  },
-  {
-    id: "conservative",
-    label: "อนุรักษ์นิยม",
-    sublabel: "ตราสารหนี้เป็นหลัก",
-    expectedReturn: 4,
-    riskLevel: "ต่ำ",
-    suitableForRisk: [1, 2],
-    icon: Coins,
-    color: "text-blue-600",
-    bg: "bg-blue-50",
-    border: "border-blue-300",
-    instruments: ["กองทุนตราสารหนี้", "หุ้นกู้เอกชน", "หุ้นปันผลสูง SET"],
-    aiInsight: "ผสมผสานตราสารหนี้ 70-80% กับหุ้นปันผล สร้างกระแสเงินสดสม่ำเสมอ ความผันผวนต่ำ เหมาะกับระยะเวลาลงทุนสั้น-กลาง",
-  },
-  {
-    id: "balanced",
-    label: "สมดุล",
-    sublabel: "หุ้น + ตราสารหนี้ 50/50",
-    expectedReturn: 7,
-    riskLevel: "ปานกลาง",
-    suitableForRisk: [2, 3],
-    icon: BarChart3,
-    color: "text-emerald-600",
-    bg: "bg-emerald-50",
-    border: "border-emerald-300",
-    instruments: ["หุ้น SET50", "กองทุนผสม", "REITs", "ตราสารหนี้"],
-    aiInsight: "กลยุทธ์ถ่วงน้ำหนักหุ้น-ตราสารหนี้ 50:50 ให้ผลตอบแทนใกล้เคียงตลาดหุ้นไทยระยะยาว ความผันผวนพอรับได้",
-  },
-  {
-    id: "growth",
-    label: "เน้นการเติบโต",
-    sublabel: "หุ้นไทย + ต่างประเทศ",
-    expectedReturn: 10,
-    riskLevel: "ค่อนข้างสูง",
-    suitableForRisk: [3, 4],
-    icon: TrendingUp,
-    color: "text-orange-600",
-    bg: "bg-orange-50",
-    border: "border-orange-300",
-    instruments: ["หุ้น SET", "กองทุน LTF/RMF", "ETF ต่างประเทศ", "หุ้นเติบโต"],
-    aiInsight: "กระจายลงทุนในหุ้นไทยและต่างประเทศ 70-80% เน้นหุ้นเติบโต ผลตอบแทนดีในระยะยาว แต่ต้องรับความผันผวนระยะสั้นได้",
-  },
-  {
-    id: "aggressive",
-    label: "เชิงรุก",
-    sublabel: "หุ้นเติบโตสูง + ต่างประเทศ",
-    expectedReturn: 13,
-    riskLevel: "สูง",
-    suitableForRisk: [4, 5],
-    icon: Flame,
-    color: "text-red-600",
-    bg: "bg-red-50",
-    border: "border-red-200",
-    instruments: ["หุ้น Growth SET", "US S&P500 ETF", "กองทุน Global Equity", "Thematic ETF"],
-    aiInsight: "เน้นหุ้นเติบโตสูงทั้งในและต่างประเทศ ให้ผลตอบแทนดีที่สุดในระยะยาว 10+ ปี ต้องทนต่อการขาดทุนชั่วคราว 30-40% ได้",
-  },
-  {
-    id: "global-tech",
-    label: "เทคโนโลยีโลก",
-    sublabel: "AI + Tech + Digital Assets",
-    expectedReturn: 16,
-    riskLevel: "สูงมาก",
-    suitableForRisk: [5],
-    icon: Zap,
-    color: "text-violet-600",
-    bg: "bg-violet-50",
-    border: "border-violet-300",
-    instruments: ["Nasdaq-100 ETF", "Thematic AI/Tech", "Global Tech stocks", "Crypto (small%)"],
-    aiInsight: "กลยุทธ์เชิงรุกสุด ลงทุนในธุรกิจเทคโนโลยีและนวัตกรรมระดับโลก ศักยภาพผลตอบแทนสูงมาก แต่ความผันผวนสูงมากเช่นกัน เหมาะกับผู้มีระยะลงทุน 15+ ปี",
-  },
-];
-
-function Step3({ plan, update, result, riskScore }: {
-  plan: Plan;
-  update: (k: keyof Plan, v: Plan[keyof Plan]) => void;
-  result: Projection;
-  riskScore: number | null;
-}) {
-  const [useTargetOverride, setUseTargetOverride] = useState(plan.targetWealthOverride !== null);
-
+function StepCard({ step, idx }: { step: Step; idx: number }) {
+  const [open, setOpen] = useState(step.status !== "done");
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold">ขั้นที่ 3 — ปรับแผนแบบ Interactive</h2>
-        <p className="text-sm text-muted-foreground">เลื่อน slider เพื่อดูผลกระทบต่อแผนการเงินของคุณแบบ real-time</p>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* ─ Left: Sliders ─ */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">พารามิเตอร์แผน</CardTitle></CardHeader>
-            <CardContent className="space-y-6">
-              <Slider label="เกษียณอายุ" min={40} max={75} value={plan.retirementAge}
-                onChange={v => update("retirementAge", v)}
-                format={v => `${v} ปี (อีก ${Math.max(0, v - plan.currentAge)} ปี)`} />
-
-              <Slider label="เงินลงทุน / ออมต่อเดือน" min={1000} max={200000} step={1000}
-                value={plan.monthlyInvestable}
-                onChange={v => update("monthlyInvestable", v)}
-                format={v => `฿${v.toLocaleString("th-TH")}`} />
-
-              <Slider label="อัตราเงินเฟ้อ (%/ปี)" sublabel="ประมาณการ BOT ระยะกลาง ~2-3%"
-                min={0} max={10} step={0.5} value={plan.inflationRate}
-                onChange={v => update("inflationRate", v)}
-                format={v => `${v}%`} />
-
-              {/* Target override */}
-              <div className="space-y-2 pt-2 border-t">
-                <label className="flex items-center gap-2 text-sm cursor-pointer font-medium">
-                  <input type="checkbox" className="accent-primary"
-                    checked={useTargetOverride}
-                    onChange={e => {
-                      setUseTargetOverride(e.target.checked);
-                      update("targetWealthOverride", e.target.checked ? (result.corpusNeeded || 20_000_000) : null);
-                    }} />
-                  กำหนดเป้าหมายความมั่งคั่งเอง
-                </label>
-                {useTargetOverride && (
-                  <div className="space-y-1 ml-6">
-                    <Slider label="เป้าหมายความมั่งคั่ง" min={1_000_000} max={100_000_000}
-                      step={500_000} value={plan.targetWealthOverride ?? result.corpusNeeded}
-                      onChange={v => update("targetWealthOverride", v)}
-                      format={v => thb(v)} />
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ─ Strategy Picker ─ */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Globe className="h-4 w-4 text-primary" />
-                กลยุทธ์การลงทุน
-              </CardTitle>
-              <CardDescription className="text-xs">
-                เลือกกลยุทธ์ที่เหมาะกับโปรไฟล์ความเสี่ยงของคุณ • ดูผลกระทบต่อแผนแบบ real-time
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {riskScore && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs">
-                  <Star className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                  <span className="text-muted-foreground">ระดับความเสี่ยงของคุณ:</span>
-                  <span className="font-semibold text-primary">
-                    {riskScore === 1 ? "อนุรักษ์นิยมสูง (1/5)" :
-                     riskScore === 2 ? "อนุรักษ์นิยม (2/5)" :
-                     riskScore === 3 ? "สมดุล (3/5)" :
-                     riskScore === 4 ? "เน้นเติบโต (4/5)" :
-                                      "เชิงรุก (5/5)"}
-                  </span>
-                  <span className="text-muted-foreground ml-auto">⭐ = เหมาะกับคุณ</span>
-                </div>
-              )}
-              {STRATEGIES.map(s => {
-                const isSelected = Math.abs(plan.expectedReturn - s.expectedReturn) < 0.5;
-                const isSuitable = riskScore !== null && s.suitableForRisk.includes(riskScore);
-                const projWealth = (() => {
-                  const r = s.expectedReturn / 100;
-                  const n = Math.max(1, plan.retirementAge - plan.currentAge);
-                  const fv = plan.currentSavings * Math.pow(1 + r, n);
-                  const fvPMT = plan.monthlyInvestable > 0
-                    ? plan.monthlyInvestable * ((Math.pow(1 + r / 12, n * 12) - 1) / (r / 12))
-                    : 0;
-                  return Math.round(fv + fvPMT);
-                })();
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() => update("expectedReturn", s.expectedReturn)}
-                    className={cn(
-                      "w-full text-left rounded-xl border-2 p-3 transition-all duration-150",
-                      isSelected
-                        ? `${s.border} ${s.bg} shadow-sm`
-                        : "border-muted hover:border-muted-foreground/40 bg-background"
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={cn("p-1.5 rounded-lg shrink-0", s.bg, s.border, "border")}>
-                        <s.icon className={cn("h-4 w-4", s.color)} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm">{s.label}</span>
-                          <span className={cn("text-xs font-medium", s.color)}>
-                            {s.expectedReturn}%/ปี
-                          </span>
-                          {isSuitable && (
-                            <span className="ml-auto text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-medium flex items-center gap-1 shrink-0">
-                              <Star className="h-3 w-3" />เหมาะกับคุณ
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">{s.sublabel}</p>
-                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{s.aiInsight}</p>
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {s.instruments.map(inst => (
-                            <span key={inst} className={cn("text-xs px-1.5 py-0.5 rounded", s.bg, s.color, "font-medium")}>
-                              {inst}
-                            </span>
-                          ))}
-                        </div>
-                        {isSelected && (
-                          <p className="text-xs font-semibold text-blue-600 mt-1.5">
-                            → ความมั่งคั่งคาดการณ์: {thb(projWealth)}
-                          </p>
-                        )}
-                      </div>
-                      {isSelected && (
-                        <CheckCircle2 className={cn("h-4 w-4 shrink-0 mt-0.5", s.color)} />
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ─ Right: Results ─ */}
-        <div className="space-y-4">
-          {/* Main status card */}
-          <Card className={result.onTrack
-            ? "border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/10"
-            : "border-red-200 bg-red-50/50 dark:bg-red-950/10"
-          }>
-            <CardContent className="pt-5 pb-4 space-y-3">
-              <div className="flex items-center gap-2">
-                {result.onTrack
-                  ? <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                  : <AlertCircle className="h-5 w-5 text-red-500" />
-                }
-                <span className={`font-semibold ${result.onTrack ? "text-emerald-700" : "text-red-600"}`}>
-                  {result.onTrack ? "🎉 แผนการเงินของคุณอยู่ในเส้นทางที่ดี!" : "⚠️ ต้องปรับแผน — ยังไม่ถึงเป้าหมาย"}
+    <Card className={cn("border-l-4", URGENCY_BORDER[step.urgency])}>
+      <button className="w-full text-left" onClick={() => setOpen(o => !o)}>
+        <CardHeader className="pb-2 pt-4">
+          <div className="flex items-center gap-3">
+            <span className={cn(
+              "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold shrink-0",
+              step.status === "done" ? "bg-emerald-100 text-emerald-700"
+              : step.urgency === "critical" ? "bg-red-100 text-red-600"
+              : "bg-amber-100 text-amber-700"
+            )}>
+              {step.status === "done" ? "✓" : idx}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold">{step.title}</span>
+                <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", STATUS_STYLE[step.status])}>
+                  {STATUS_LABEL[step.status]}
                 </span>
               </div>
+              <p className="text-xs text-muted-foreground mt-0.5">{step.summary}</p>
+            </div>
+            <ChevronRight className={cn("h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-150", open && "rotate-90")} />
+          </div>
+        </CardHeader>
+      </button>
 
-              <div className="space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">ความคืบหน้าสู่เป้าหมาย</span>
-                  <span className="font-medium">{result.progressPct}%</span>
-                </div>
-                <Progress value={result.progressPct} className="h-3" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 text-sm pt-1">
-                <div>
-                  <p className="text-muted-foreground text-xs">ความมั่งคั่งที่คาดไว้ (เกษียณ)</p>
-                  <p className="font-bold text-lg text-blue-600">{thb(result.projectedWealth)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">เป้าหมาย corpus (4% rule)</p>
-                  <p className="font-bold text-lg">{thb(result.corpusNeeded)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">ต้องออม/ลงทุนต่อเดือน</p>
-                  <p className={`font-bold text-base ${result.monthlyNeeded <= plan.monthlyInvestable ? "text-emerald-600" : "text-red-500"}`}>
-                    {thb(result.monthlyNeeded)}/เดือน
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">
-                    {result.surplus >= 0 ? "ส่วนเกิน" : "ขาด"}
-                  </p>
-                  <p className={`font-bold text-base ${result.surplus >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                    {result.surplus >= 0 ? "+" : ""}{thb(result.surplus)}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Wealth timeline chart */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">กราฟความมั่งคั่งตามอายุ</CardTitle>
-              <CardDescription className="text-xs">เส้นสีน้ำเงิน = ความมั่งคั่งที่คาด | เส้นประแดง = corpus ที่ต้องการ</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0 pb-3">
-              <WealthChart timeline={result.timeline} corpusNeeded={result.corpusNeeded} retirementAge={plan.retirementAge} />
-            </CardContent>
-          </Card>
-
-          {/* Milestones */}
-          {result.milestones.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm">ไทม์ไลน์เป้าหมาย</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
-                {result.milestones.map(m => (
-                  <div key={m.label} className={cn(
-                    "flex items-center justify-between p-2.5 rounded-lg border text-sm",
-                    m.canAfford ? "border-emerald-200 bg-emerald-50/50" : "border-amber-200 bg-amber-50/50"
-                  )}>
-                    <div className="flex items-center gap-2">
-                      <m.icon className={`h-4 w-4 ${m.canAfford ? "text-emerald-600" : "text-amber-600"}`} />
-                      <div>
-                        <p className="font-medium">{m.label}</p>
-                        <p className="text-xs text-muted-foreground">อายุ {m.age} ปี (อีก {m.years} ปี)</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">{thb(m.budget)}</p>
-                      <p className={`text-xs ${m.canAfford ? "text-emerald-600" : "text-amber-600"}`}>
-                        {m.canAfford ? "✓ เพียงพอ" : "⚠ ต้องเพิ่มออม"}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+      {open && (
+        <CardContent className="pb-4 pt-0 space-y-3 pl-[52px]">
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">ทำไมถึงสำคัญ</p>
+            <p className="text-sm leading-relaxed">{step.why}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">ทำอย่างไร</p>
+            <ul className="space-y-1.5">
+              {step.how.map((h, i) => (
+                <li key={i} className="text-sm flex items-start gap-2">
+                  <span className="text-primary shrink-0 font-bold mt-0.5">→</span>{h}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className={cn(
+            "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium",
+            step.status === "done" ? "bg-emerald-50 text-emerald-700" : "bg-primary/5 text-primary"
+          )}>
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            {step.benefit}
+          </div>
+          {step.link && (
+            <Link href={step.link.href} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+              {step.link.label} →
+            </Link>
           )}
-        </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ─── Situation Row ────────────────────────────────────────────────────────────
+
+function Row({ label, value, sub, ok }: { label: string; value: string; sub?: string; ok?: boolean }) {
+  return (
+    <div className="flex justify-between items-start py-1.5 border-b last:border-0">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="text-right">
+        <span className={cn("text-sm font-semibold tabular-nums",
+          ok === true ? "text-emerald-600" : ok === false ? "text-red-500" : ""
+        )}>{value}</span>
+        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
       </div>
     </div>
   );
@@ -776,199 +351,197 @@ function Step3({ plan, update, result, riskScore }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type Step = 1 | 2 | 3;
-
 export default function FinancialPlanPage() {
-  const [step, setStep]     = useState<Step>(1);
-  const [plan, setPlan]     = useState<Plan>(DEFAULT_PLAN);
-  const [loading, setLoading]   = useState(true);
-  const [saving,  setSaving]    = useState(false);
-  const [saved,   setSaved]     = useState(false);
-  const [riskScore, setRiskScore] = useState<number | null>(null);
-
-  const update = useCallback(<K extends keyof Plan>(k: K, v: Plan[K]) => {
-    setPlan(prev => ({ ...prev, [k]: v }));
-    setSaved(false);
-  }, []);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [plan,    setPlan]    = useState<PlanData | null>(null);
+  const [risk,    setRisk]    = useState<RiskData | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch risk score alongside plan + profile
-    fetch("/api/user/risk-assessment")
-      .then(r => r.json())
-      .then(d => {
-        if (d.data?.riskLevel) {
-          const map: Record<string, number> = { conservative: 2, moderate: 3, aggressive: 5 };
-          setRiskScore(map[d.data.riskLevel] ?? null);
-        }
-      })
-      .catch(() => {});
-
     Promise.all([
-      fetch("/api/user/financial-plan").then(r => r.json()),
       fetch("/api/user/financial-profile").then(r => r.json()),
-    ]).then(([planRes, profRes]) => {
+      fetch("/api/user/financial-plan").then(r => r.json()),
+      fetch("/api/user/risk-assessment").then(r => r.json()),
+    ]).then(([profRes, planRes, riskRes]) => {
+      if (profRes.data) {
+        const d = profRes.data;
+        setProfile({
+          annualSalary: Number(d.annualSalary ?? 0), bonus: Number(d.bonus ?? 0), otherIncome: Number(d.otherIncome ?? 0),
+          monthlyExpenses: Number(d.monthlyExpenses ?? 0), monthlyDebtPayment: Number(d.monthlyDebtPayment ?? 0), totalDebt: Number(d.totalDebt ?? 0),
+          emergencyFundAmount: Number(d.emergencyFundAmount ?? 0),
+          rmfAmount: Number(d.rmfAmount ?? 0), ssfAmount: Number(d.ssfAmount ?? 0), thaiEsgAmount: Number(d.thaiEsgAmount ?? 0),
+          ltfAmount: Number(d.ltfAmount ?? 0), providentFundAmount: Number(d.providentFundAmount ?? 0),
+          lifeInsurancePremium: Number(d.lifeInsurancePremium ?? 0), healthInsurancePremium: Number(d.healthInsurancePremium ?? 0),
+          annuityInsurancePremium: Number(d.annuityInsurancePremium ?? 0),
+        });
+      }
       if (planRes.data) {
-        // Merge DB values into plan, coercing Decimal strings to numbers
         const d = planRes.data;
-        setPlan(prev => ({
-          ...prev,
-          currentAge: d.currentAge ?? prev.currentAge,
-          maritalStatus: d.maritalStatus ?? prev.maritalStatus,
-          numChildrenPlan: d.numChildrenPlan ?? prev.numChildrenPlan,
-          retirementAge: d.retirementAge ?? prev.retirementAge,
-          monthlyRetirementNeeds: Number(d.monthlyRetirementNeeds ?? prev.monthlyRetirementNeeds),
-          hasHomeGoal: d.hasHomeGoal ?? prev.hasHomeGoal,
-          homePurchaseYears: d.homePurchaseYears ?? prev.homePurchaseYears,
-          homeBudget: Number(d.homeBudget ?? prev.homeBudget),
-          hasCarGoal: d.hasCarGoal ?? prev.hasCarGoal,
-          carPurchaseYears: d.carPurchaseYears ?? prev.carPurchaseYears,
-          carBudget: Number(d.carBudget ?? prev.carBudget),
-          hasEducationGoal: d.hasEducationGoal ?? prev.hasEducationGoal,
-          educationYears: d.educationYears ?? prev.educationYears,
-          educationBudget: Number(d.educationBudget ?? prev.educationBudget),
-          emergencyFundMonths: d.emergencyFundMonths ?? prev.emergencyFundMonths,
-          monthlyInvestable: Number(d.monthlyInvestable ?? prev.monthlyInvestable),
-          currentSavings: Number(d.currentSavings ?? prev.currentSavings),
-          expectedReturn: Number(d.expectedReturn ?? prev.expectedReturn),
-          inflationRate: Number(d.inflationRate ?? prev.inflationRate),
-          targetWealthOverride: d.targetWealthOverride !== null ? Number(d.targetWealthOverride) : null,
-        }));
-        // If plan exists, jump to step 3
-        setStep(3);
+        setPlan({
+          currentAge: d.currentAge ?? null, retirementAge: d.retirementAge ?? null,
+          monthlyRetirementNeeds: Number(d.monthlyRetirementNeeds ?? 0) || null,
+          expectedReturn: Number(d.expectedReturn ?? 7),
+          currentSavings: Number(d.currentSavings ?? 0),
+          monthlyInvestable: Number(d.monthlyInvestable ?? 0) || null,
+        });
       }
-      // Pre-fill monthly investable + savings from profile if not set in plan
-      if (!planRes.data && profRes.data) {
-        const prof = profRes.data;
-        const monthlyIncome = Number(prof.annualSalary ?? 0) / 12;
-        const expenses = Number(prof.monthlyExpenses ?? 0);
-        const debt = Number(prof.monthlyDebtPayment ?? 0);
-        const investable = Math.max(0, monthlyIncome - expenses - debt);
-        if (investable > 0) setPlan(p => ({ ...p, monthlyInvestable: Math.round(investable) }));
-        if (Number(prof.emergencyFundAmount) > 0) {
-          setPlan(p => ({ ...p, currentSavings: Number(prof.emergencyFundAmount) }));
-        }
-      }
+      if (riskRes.data) setRisk(riskRes.data);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
 
-  const handleSave = async () => {
-    setSaving(true);
-    await fetch("/api/user/financial-plan", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(plan),
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
+  const steps = useMemo(() => {
+    if (!profile) return [];
+    return buildSteps(profile, plan, risk);
+  }, [profile, plan, risk]);
 
-  const result = useMemo(() => project(plan), [plan]);
+  const annualIncome  = profile ? profile.annualSalary + profile.bonus + profile.otherIncome : 0;
+  const monthlyIncome = annualIncome / 12;
+  const monthlyFree   = profile ? monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment : 0;
+  const totalInvested = profile ? profile.rmfAmount + profile.ssfAmount + profile.thaiEsgAmount + profile.ltfAmount + profile.providentFundAmount : 0;
+  const efMonths      = profile && profile.monthlyExpenses > 0 ? profile.emergencyFundAmount / profile.monthlyExpenses : null;
+  const doneCount     = steps.filter(s => s.status === "done").length;
 
-  const STEPS = [
-    { n: 1 as Step, label: "ข้อมูลส่วนตัว" },
-    { n: 2 as Step, label: "เป้าหมายชีวิต" },
-    { n: 3 as Step, label: "แผนการเงิน" },
-  ];
+  if (loading) return (
+    <div className="flex justify-center py-24">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  if (!profile || annualIncome === 0) return (
+    <div className="max-w-xl mx-auto space-y-5 pt-8 text-center">
+      <MapPin className="h-12 w-12 text-muted-foreground/30 mx-auto" />
+      <h2 className="text-xl font-bold">กรอกข้อมูลก่อนเพื่อดูแผนการเงิน</h2>
+      <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+        ระบบจะวิเคราะห์สถานการณ์ของคุณและสร้างแผนแนะนำเฉพาะบุคคลโดยอัตโนมัติ ไม่ต้องกรอกซ้ำ
+      </p>
+      <Link href="/my-data">
+        <Button><Banknote className="h-4 w-4 mr-2" />ไปกรอกข้อมูล My Data →</Button>
+      </Link>
+    </div>
+  );
+
+  const yearsToRetire = plan?.currentAge && plan?.retirementAge
+    ? Math.max(0, plan.retirementAge - plan.currentAge)
+    : null;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-5 max-w-5xl">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <MapPin className="h-6 w-6 text-primary" />
-            แผนการเงิน
-          </h1>
-          <p className="text-muted-foreground text-sm">วางแผนความมั่งคั่งตั้งแต่วันนี้ถึงวันเกษียณ</p>
-        </div>
-        <Button onClick={handleSave} disabled={saving} variant="outline" size="sm">
-          {saving
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />กำลังบันทึก...</>
-            : saved
-            ? <><CheckCircle2 className="h-4 w-4 mr-2 text-emerald-600" />บันทึกแล้ว</>
-            : <><Save className="h-4 w-4 mr-2" />บันทึกแผน</>
-          }
-        </Button>
-      </div>
-
-      {/* Step progress bar */}
-      <div className="flex items-center gap-0">
-        {STEPS.map((s, i) => (
-          <div key={s.n} className="flex items-center flex-1 last:flex-none">
-            <button
-              onClick={() => setStep(s.n)}
-              className={cn(
-                "flex items-center gap-2 text-sm font-medium transition-colors",
-                step === s.n ? "text-primary" : step > s.n ? "text-emerald-600" : "text-muted-foreground"
-              )}
-            >
-              <span className={cn(
-                "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold border-2 transition-colors",
-                step === s.n ? "border-primary bg-primary text-white" :
-                step > s.n  ? "border-emerald-500 bg-emerald-500 text-white" :
-                              "border-muted-foreground/30 text-muted-foreground"
-              )}>
-                {step > s.n ? "✓" : s.n}
-              </span>
-              <span className="hidden sm:inline">{s.label}</span>
-            </button>
-            {i < STEPS.length - 1 && (
-              <div className={cn("flex-1 mx-2 h-0.5", step > s.n ? "bg-emerald-400" : "bg-muted")} />
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Step content */}
-      {/* Live mini-summary — always visible */}
-      <div className={`flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-xl text-sm border ${
-        result.corpusNeeded === 0 ? "bg-muted/40 border-muted" :
-        result.onTrack ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20" :
-                         "bg-red-50 border-red-200 dark:bg-red-950/20"
-      }`}>
-        <span className="font-medium text-muted-foreground">คาดการณ์ (ตอนเกษียณอายุ {plan.retirementAge} ปี):</span>
-        <span className="font-bold text-blue-600">{thb(result.projectedWealth)}</span>
-        <span className="text-muted-foreground">/</span>
-        <span className="font-medium">{thb(result.corpusNeeded)} ที่ต้องการ</span>
-        {result.corpusNeeded > 0 && (
-          <span className={`ml-auto font-semibold ${
-            result.onTrack ? "text-emerald-600" : "text-red-500"
-          }`}>
-            {result.onTrack ? "✓ อยู่ในเส้นทาง" : `⚠️ ขาด ${thb(Math.abs(result.surplus))}`}
-          </span>
-        )}
-      </div>
       <div>
-        {step === 1 && <Step1 plan={plan} update={update} />}
-        {step === 2 && <Step2 plan={plan} update={update} />}
-        {step === 3 && <Step3 plan={plan} update={update} result={result} riskScore={riskScore} />}
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <MapPin className="h-6 w-6 text-primary" />แผนการเงินส่วนตัว
+        </h1>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          วิเคราะห์จากข้อมูล My Data ของคุณ — {doneCount}/{steps.length} ขั้นตอนเสร็จแล้ว
+        </p>
       </div>
 
-      {/* Navigation */}
-      <div className="flex justify-between">
-        <Button variant="outline" disabled={step === 1} onClick={() => setStep((step - 1) as Step)}>
-          <ChevronLeft className="h-4 w-4 mr-1" />ย้อนกลับ
-        </Button>
-        {step < 3 ? (
-          <Button onClick={() => setStep((step + 1) as Step)}>
-            ถัดไป<ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
-        ) : (
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-            บันทึกแผน
-          </Button>
-        )}
+      <div className="flex items-center gap-3">
+        <Progress value={(doneCount / Math.max(steps.length, 1)) * 100} className="h-2 flex-1" />
+        <span className="text-sm font-semibold shrink-0">{doneCount}/{steps.length}</span>
+      </div>
+
+      <div className="grid lg:grid-cols-[320px_1fr] gap-6 items-start">
+        {/* ── Left: Situation panel ── */}
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Banknote className="h-4 w-4 text-blue-500" />กระแสเงินสด/เดือน
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4">
+              <Row label="รายได้" value={thb(monthlyIncome)} />
+              <Row label="ค่าใช้จ่าย" value={`−${thb(profile.monthlyExpenses)}`} />
+              <Row label="ผ่อนหนี้" value={`−${thb(profile.monthlyDebtPayment)}`} />
+              <Row label="เหลือลงทุนได้" value={thb(Math.max(0, monthlyFree))} ok={monthlyFree > 0} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Target className="h-4 w-4 text-emerald-500" />เงินสำรอง & หนี้
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4">
+              <Row label="กองทุนฉุกเฉิน" value={thb(profile.emergencyFundAmount)}
+                sub={efMonths !== null ? `${efMonths.toFixed(1)} เดือน (เป้า 6)` : undefined}
+                ok={efMonths !== null && efMonths >= 6} />
+              <Row label="หนี้สินรวม" value={profile.totalDebt > 0 ? thb(profile.totalDebt) : "ไม่มีหนี้ ✓"} ok={profile.totalDebt === 0} />
+              <Row label="DTI (ผ่อน/รายได้)"
+                value={monthlyIncome > 0 ? `${Math.round((profile.monthlyDebtPayment / monthlyIncome) * 100)}%` : "—"}
+                sub="เป้า < 30%"
+                ok={monthlyIncome > 0 && profile.monthlyDebtPayment / monthlyIncome < 0.3} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-purple-500" />การลงทุน
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4">
+              <Row label="รวมลงทุน/ปี" value={thb(totalInvested)}
+                sub={annualIncome > 0 ? `${Math.round((totalInvested / annualIncome) * 100)}% ของรายได้ (เป้า 15%)` : undefined}
+                ok={annualIncome > 0 && totalInvested / annualIncome >= 0.15} />
+              <Row label="SSF" value={thb(profile.ssfAmount)} />
+              <Row label="RMF" value={thb(profile.rmfAmount)} />
+              <Row label="Thai ESG" value={thb(profile.thaiEsgAmount)} />
+              {risk && (
+                <Row label="ระดับความเสี่ยง"
+                  value={risk.riskLevel === "conservative" ? "ระมัดระวัง" : risk.riskLevel === "moderate" ? "สมดุล" : "เชิงรุก"} />
+              )}
+            </CardContent>
+          </Card>
+
+          {plan?.currentAge ? (
+            <Card>
+              <CardHeader className="pb-2 pt-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-indigo-500" />แผนเกษียณ
+                  </CardTitle>
+                  <Link href="/my-data?tab=retirement" className="text-xs text-primary hover:underline">แก้ไข →</Link>
+                </div>
+              </CardHeader>
+              <CardContent className="pb-4">
+                <Row label="อายุปัจจุบัน" value={`${plan.currentAge} ปี`} />
+                <Row label="เกษียณอายุ" value={`${plan.retirementAge} ปี`}
+                  sub={yearsToRetire !== null ? `อีก ${yearsToRetire} ปี` : undefined} />
+                <Row label="ค่าใช้จ่าย/เดือน (หลังเกษียณ)"
+                  value={plan.monthlyRetirementNeeds ? thb(plan.monthlyRetirementNeeds) : "—"} />
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-dashed">
+              <CardContent className="pt-4 pb-4 text-center space-y-2">
+                <AlertCircle className="h-6 w-6 text-amber-500 mx-auto" />
+                <p className="text-sm text-muted-foreground">ยังไม่มีข้อมูลแผนเกษียณ</p>
+                <Link href="/my-data?tab=retirement">
+                  <Button size="sm" variant="outline">กำหนดแผนเกษียณ →</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* ── Right: Action Plan ── */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">แผนแนะนำ — ทำตามลำดับนี้</h2>
+            <span className="text-xs text-muted-foreground">คลิกที่แต่ละขั้นเพื่อดูรายละเอียด</span>
+          </div>
+          {steps.map((step, idx) => (
+            <StepCard key={step.id} step={step} idx={idx + 1} />
+          ))}
+          <div className="flex items-start gap-2 text-xs text-muted-foreground pt-2 border-t">
+            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <p>แผนนี้คำนวณจากข้อมูลที่คุณกรอกใน My Data อัปเดตข้อมูลให้ครบถ้วนเพื่อให้คำแนะนำแม่นยำยิ่งขึ้น</p>
+          </div>
+        </div>
       </div>
     </div>
   );

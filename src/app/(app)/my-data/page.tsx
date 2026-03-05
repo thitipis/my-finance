@@ -10,6 +10,7 @@ import {
   User, Banknote, ShieldCheck, TrendingUp, AlertTriangle,
   Save, Loader2, CheckCircle2, Wallet, Building2, Heart,
   ShieldAlert, Activity, UserCheck, AlertCircle, ExternalLink,
+  Calendar, MapPin,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -56,13 +57,14 @@ const defaultProfile: FinancialProfile = {
 
 // ─── Tab Types ───────────────────────────────────────────────────────────────
 
-type TabKey = "income" | "insurance" | "investment" | "debts";
+type TabKey = "income" | "insurance" | "investment" | "debts" | "retirement";
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType; color: string }[] = [
   { key: "income",     label: "รายได้ & ครอบครัว",  icon: Banknote,    color: "text-blue-500" },
   { key: "insurance",  label: "ประกัน",              icon: ShieldCheck, color: "text-emerald-500" },
   { key: "investment", label: "การลงทุน",            icon: TrendingUp,  color: "text-purple-500" },
   { key: "debts",      label: "หนี้สิน & เงินสำรอง", icon: Wallet,      color: "text-amber-500" },
+  { key: "retirement", label: "แผนเกษียณ",        icon: Calendar,    color: "text-indigo-500" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -402,6 +404,109 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
   );
 }
 
+// ─── Tab: Retirement ─────────────────────────────────────────────────────────
+
+function RetirementTab({ profile }: { profile: FinancialProfile }) {
+  const [form, setForm] = useState({ currentAge: 30, retirementAge: 60, monthlyRetirementNeeds: 50000 });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+
+  useEffect(() => {
+    fetch("/api/user/financial-plan").then(r => r.json()).then(d => {
+      if (d.data) setForm(prev => ({
+        ...prev,
+        currentAge: d.data.currentAge ?? prev.currentAge,
+        retirementAge: d.data.retirementAge ?? prev.retirementAge,
+        monthlyRetirementNeeds: Number(d.data.monthlyRetirementNeeds || prev.monthlyRetirementNeeds),
+      }));
+    }).catch(() => {});
+  }, []);
+
+  const monthlyIncome = Math.round((profile.annualSalary + profile.bonus + profile.otherIncome) / 12);
+  const monthlyFree   = Math.max(0, monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment);
+  const yearsToRetire = Math.max(0, form.retirementAge - form.currentAge);
+  const corpusNeeded  = form.monthlyRetirementNeeds > 0
+    ? Math.round((form.monthlyRetirementNeeds * 12) / 0.04)
+    : 0;
+
+  const save = async () => {
+    setSaving(true);
+    await fetch("/api/user/financial-plan", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currentAge: form.currentAge,
+        retirementAge: form.retirementAge,
+        monthlyRetirementNeeds: form.monthlyRetirementNeeds,
+        monthlyInvestable: monthlyFree,
+      }),
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-200 dark:bg-indigo-950/20 dark:border-indigo-800">
+        <p className="text-sm font-medium text-indigo-800 dark:text-indigo-300">ข้อมูลนี้ใช้สร้างแผนการเงินส่วนตัวของคุณ</p>
+        <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
+          ระบบจะคำนวณว่าคุณต้องออมเท่าไหร่ต่อเดือน และคุณอยู่ในเส้นทางที่ถูกต้องหรือไม่
+        </p>
+      </div>
+
+      <SectionCard title="เป้าหมายเกษียณ" icon={Calendar} iconColor="text-indigo-500">
+        <NumField label="อายุปัจจุบัน" value={form.currentAge}
+          onChange={v => setForm(p => ({ ...p, currentAge: v }))} suffix="ปี" />
+        <NumField label="อายุเกษียณเป้าหมาย" value={form.retirementAge}
+          onChange={v => setForm(p => ({ ...p, retirementAge: v }))} suffix="ปี"
+          hint={yearsToRetire > 0 ? `อีก ${yearsToRetire} ปี` : ""} />
+        <NumField label="ค่าใช้จ่ายหลังเกษียณ/เดือน" value={form.monthlyRetirementNeeds}
+          onChange={v => setForm(p => ({ ...p, monthlyRetirementNeeds: v }))}
+          hint="ณ มูลค่าเงินปัจจุบัน (ก่อนเงินเฟ้อ)" />
+      </SectionCard>
+
+      {/* Derived summary */}
+      <Card className="bg-muted/40 border-dashed">
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">สรุปคำนวณอัตโนมัติ</p>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">เงินลงทุนได้/เดือน (จากรายได้)</p>
+              <p className={cn("font-bold text-base", monthlyFree > 0 ? "text-emerald-600" : "text-muted-foreground")}>
+                {monthlyIncome > 0 ? thb(monthlyFree) : "กรอกรายได้ก่อน"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">เงินที่ต้องมีตอนเกษียณ (4% rule)</p>
+              <p className="font-bold text-base text-indigo-600">
+                {corpusNeeded > 0 ? `฿${(corpusNeeded / 1_000_000).toFixed(1)}M` : "—"}
+              </p>
+            </div>
+          </div>
+          {monthlyIncome === 0 && (
+            <p className="text-xs text-amber-600 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              กรอกรายได้ในแท็บ "รายได้ & ครอบครัว" เพื่อดูยอดลงทุนที่คำนวณ
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button onClick={save} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+          บันทึกข้อมูลเกษียณ
+        </Button>
+        {saved && <span className="flex items-center gap-1 text-sm text-emerald-600"><CheckCircle2 className="h-4 w-4" />บันทึกแล้ว</span>}
+        <Link href="/financial-plan" className="ml-auto text-sm text-primary hover:underline flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5" />ดูแผนการเงิน →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function MyDataPage() {
   const [tab, setTab] = useState<TabKey>("income");
 
@@ -409,7 +514,7 @@ export default function MyDataPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get("tab") as TabKey;
-    if (t && ["income", "insurance", "investment", "debts"].includes(t)) {
+    if (t && ["income", "insurance", "investment", "debts", "retirement"].includes(t)) {
       setTab(t);
     }
   }, []);
@@ -516,10 +621,11 @@ export default function MyDataPage() {
       </div>
 
       {/* Tab Content */}
-      {tab === "income"     && <IncomeTab     p={profile} upd={upd} />}
-      {tab === "insurance"  && <InsuranceTab  p={profile} upd={upd} />}
-      {tab === "investment" && <InvestmentTab p={profile} upd={upd} />}
-      {tab === "debts"      && <DebtsTab      p={profile} upd={upd} />}
+      {tab === "income"      && <IncomeTab      p={profile} upd={upd} />}
+      {tab === "insurance"   && <InsuranceTab   p={profile} upd={upd} />}
+      {tab === "investment"  && <InvestmentTab  p={profile} upd={upd} />}
+      {tab === "debts"       && <DebtsTab       p={profile} upd={upd} />}
+      {tab === "retirement"  && <RetirementTab  profile={profile} />}
 
       {/* Bottom save */}
       <div className="flex items-center gap-3 pt-2 border-t">
