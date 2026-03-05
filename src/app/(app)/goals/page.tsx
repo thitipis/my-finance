@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Target, Plus, TrendingUp, Trash2, Loader2, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Target, Plus, TrendingUp, Trash2, Loader2, CheckCircle2, Clock, AlertCircle, Pencil, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,10 +41,19 @@ function ProgressRing({ pct, color, size = 64 }: { pct: number; color: string; s
   );
 }
 
-function GoalCard({ goal, onDelete }: { goal: Goal; onDelete: (id: string) => void }) {
+function GoalCard({ goal, onDelete, onUpdate }: { goal: Goal; onDelete: (id: string) => void; onUpdate: (g: Goal) => void }) {
   const pct  = goal.projection.progressPercent;
   const type = GOAL_TYPES.find(t => t.value === goal.goalType) ?? GOAL_TYPES[GOAL_TYPES.length - 1];
   const [del, setDel] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: goal.name,
+    targetAmount: goal.targetAmount,
+    currentAmount: goal.currentAmount,
+    monthlyContribution: goal.monthlyContribution,
+    annualReturnRate: goal.annualReturnRate,
+  });
+  const [saving, setSaving] = useState(false);
 
   const handleDelete = async () => {
     if (!confirm("ลบเป้าหมายนี้?")) return;
@@ -53,10 +62,73 @@ function GoalCard({ goal, onDelete }: { goal: Goal; onDelete: (id: string) => vo
     onDelete(goal.id);
   };
 
+  const handleEditSave = async () => {
+    setSaving(true);
+    const res = await fetch(`/api/goals/${goal.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: editForm.name,
+        targetAmount: parseFloat(editForm.targetAmount),
+        currentAmount: parseFloat(editForm.currentAmount) || 0,
+        monthlyContribution: parseFloat(editForm.monthlyContribution),
+        annualReturnRate: parseFloat(editForm.annualReturnRate),
+      }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (res.ok && data.data) { onUpdate(data.data); setEditing(false); }
+  };
+
   const current = Number(goal.currentAmount);
   const target  = Number(goal.targetAmount);
   const monthly = Number(goal.monthlyContribution);
   const left    = Math.max(0, target - current);
+
+  if (editing) {
+    return (
+      <Card className="overflow-hidden border-primary/40">
+        <div className="h-1 w-full" style={{ background: type.color }} />
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="font-semibold text-sm">{type.icon} แก้ไขเป้าหมาย</p>
+            <button onClick={() => setEditing(false)} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="col-span-2 space-y-1">
+              <Label className="text-xs">ชื่อเป้าหมาย</Label>
+              <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">เป้าหมาย (บาท)</Label>
+              <Input type="number" value={editForm.targetAmount} onChange={e => setEditForm(p => ({ ...p, targetAmount: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">มีอยู่แล้ว (บาท)</Label>
+              <Input type="number" value={editForm.currentAmount} onChange={e => setEditForm(p => ({ ...p, currentAmount: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">ออม/เดือน (บาท)</Label>
+              <Input type="number" value={editForm.monthlyContribution} onChange={e => setEditForm(p => ({ ...p, monthlyContribution: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">ผลตอบแทน (% / ปี)</Label>
+              <Input type="number" value={editForm.annualReturnRate} onChange={e => setEditForm(p => ({ ...p, annualReturnRate: e.target.value }))} min={0} max={100} step={0.1} />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleEditSave} disabled={saving}>
+              {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+              บันทึก
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>ยกเลิก</Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="overflow-hidden">
@@ -70,10 +142,16 @@ function GoalCard({ goal, onDelete }: { goal: Goal; onDelete: (id: string) => vo
                 <p className="font-semibold text-sm leading-tight">{goal.name}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{type.icon} {type.label}</p>
               </div>
-              <button onClick={handleDelete} disabled={del}
-                className="text-muted-foreground hover:text-destructive transition-colors shrink-0 mt-0.5">
-                {del ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => setEditing(true)}
+                  className="text-muted-foreground hover:text-primary transition-colors mt-0.5">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={handleDelete} disabled={del}
+                  className="text-muted-foreground hover:text-destructive transition-colors mt-0.5">
+                  {del ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <div className="mt-2 flex items-baseline gap-1">
               <span className="text-xl font-bold" style={{ color: pct >= 100 ? "#10b981" : type.color }}>{pct}%</span>
@@ -254,7 +332,7 @@ export default function GoalsPage() {
         <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : goals.length > 0 ? (
         <div className="grid md:grid-cols-2 gap-4">
-          {goals.map(g => <GoalCard key={g.id} goal={g} onDelete={handleDelete} />)}
+          {goals.map(g => <GoalCard key={g.id} goal={g} onDelete={handleDelete} onUpdate={updated => setGoals(prev => prev.map(x => x.id === updated.id ? updated : x))} />)}
         </div>
       ) : !showForm ? (
         <Card className="border-dashed">

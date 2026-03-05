@@ -404,6 +404,15 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
 
 export default function MyDataPage() {
   const [tab, setTab] = useState<TabKey>("income");
+
+  // Honour ?tab= URL param (e.g. from Dashboard Investment card)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab") as TabKey;
+    if (t && ["income", "insurance", "investment", "debts"].includes(t)) {
+      setTab(t);
+    }
+  }, []);
   const [profile, setProfile] = useState<FinancialProfile>(defaultProfile);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);

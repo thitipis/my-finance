@@ -48,7 +48,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
     },
   });
-  return NextResponse.json({ data: goal });
+  const projection = projectGoal(Number(goal.targetAmount), Number(goal.currentAmount), Number(goal.monthlyContribution), Number(goal.annualReturnRate));
+  return NextResponse.json({ data: { ...goal, projection } });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

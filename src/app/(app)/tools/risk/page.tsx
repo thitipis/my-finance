@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   ClipboardList, CheckCircle2, RefreshCw, Loader2, ChevronLeft, ChevronRight,
-  ShieldAlert, Shield, TrendingUp,
+  ShieldAlert, Shield, TrendingUp, MapPin,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 // ─── Questions ────────────────────────────────────────────────────────────────
@@ -165,6 +166,16 @@ export default function RiskAssessmentPage() {
                   {info.products.map(p => <li key={p} className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />{p}</li>)}
                 </ul>
               </div>
+            </div>
+            {/* CTA to Financial Plan */}
+            <div className="flex items-center justify-between gap-3 pt-2 border-t">
+              <p className="text-xs text-muted-foreground">ผลประเมินนี้ถูกนำไปใช้ใน Financial Plan แล้ว</p>
+              <Link href="/financial-plan">
+                <Button size="sm" variant="outline" className="shrink-0 gap-1.5">
+                  <MapPin className="h-3.5 w-3.5" />
+                  ปรับแผนการเงิน →
+                </Button>
+              </Link>
             </div>
           </CardContent>
         </Card>

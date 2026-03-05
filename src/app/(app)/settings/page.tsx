@@ -1,6 +1,14 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { Settings, User, Globe, Bell, LogOut, Loader2 } from "lucide-react";
+
+const NOTIF_KEYS = ["notif_tax_year", "notif_goal_80", "notif_monthly"] as const;
+type NotifKey = typeof NOTIF_KEYS[number];
+const NOTIF_LABELS: Record<NotifKey, { label: string; sublabel: string }> = {
+  notif_tax_year: { label: "แจ้งเตือนก่อนสิ้นปีภาษี",       sublabel: "เตือนช่วงเดือนธันวาคม" },
+  notif_goal_80:  { label: "แจ้งเตือนเมื่อใกล้ถึงเป้าหมาย", sublabel: "เมื่อ progress ถึง 80%" },
+  notif_monthly:  { label: "สรุปรายงานภาษีรายเดือน",         sublabel: "ส่งทางอีเมล" },
+};
 import { signOut } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +25,25 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [notifs, setNotifs] = useState<Record<NotifKey, boolean>>(
+    { notif_tax_year: true, notif_goal_80: true, notif_monthly: true }
+  );
+
+  // Load notification prefs from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("notif_prefs");
+      if (stored) setNotifs(JSON.parse(stored) as Record<NotifKey, boolean>);
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggleNotif = (key: NotifKey) => {
+    setNotifs(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem("notif_prefs", JSON.stringify(next));
+      return next;
+    });
+  };
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -141,19 +168,21 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {[
-            { label: "แจ้งเตือนก่อนสิ้นปีภาษี",         sublabel: "เตือนช่วงเดือนธันวาคม" },
-            { label: "แจ้งเตือนเมื่อใกล้ถึงเป้าหมาย",   sublabel: "เมื่อ progress ถึง 80%" },
-            { label: "สรุปรายงานภาษีรายเดือน",           sublabel: "ส่งทางอีเมล" },
-          ].map(n => (
-            <label key={n.label} className="flex items-center justify-between cursor-pointer">
+          {NOTIF_KEYS.map(key => (
+            <label key={key} className="flex items-center justify-between cursor-pointer">
               <div>
-                <p className="text-sm font-medium">{n.label}</p>
-                <p className="text-xs text-muted-foreground">{n.sublabel}</p>
+                <p className="text-sm font-medium">{NOTIF_LABELS[key].label}</p>
+                <p className="text-xs text-muted-foreground">{NOTIF_LABELS[key].sublabel}</p>
               </div>
-              <input type="checkbox" className="rounded" defaultChecked />
+              <input
+                type="checkbox"
+                className="rounded accent-primary h-4 w-4"
+                checked={notifs[key]}
+                onChange={() => toggleNotif(key)}
+              />
             </label>
           ))}
+          <p className="text-xs text-muted-foreground pt-1">การตั้งค่าบันทึกในอุปกรณ์นี้</p>
         </CardContent>
       </Card>
 
