@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
 import {
-  User, Banknote, ShieldCheck, TrendingUp, AlertTriangle, CheckCircle2,
-  ChevronRight, ChevronLeft, Save, RefreshCw, Loader2,
+  User, Banknote, ShieldCheck, TrendingUp, AlertTriangle,
+  Save, Loader2, CheckCircle2, Wallet, Building2, Heart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,205 +53,256 @@ const defaultProfile: FinancialProfile = {
   totalDebt: 0, monthlyDebtPayment: 0, emergencyFundAmount: 0, monthlyExpenses: 0,
 };
 
-// ─── Risk Assessment Questions ────────────────────────────────────────────────
+// ─── Tab Types ───────────────────────────────────────────────────────────────
 
-const riskQuestions = [
-  // Part 1: SEC standard
-  {
-    id: "experience", part: 1,
-    question: "คุณมีประสบการณ์ลงทุนมากี่ปี?",
-    options: [
-      { label: "ไม่มีประสบการณ์", score: 0 },
-      { label: "น้อยกว่า 1 ปี", score: 1 },
-      { label: "1–3 ปี", score: 3 },
-      { label: "3–5 ปี", score: 5 },
-      { label: "มากกว่า 5 ปี", score: 7 },
-    ],
-  },
-  {
-    id: "horizon", part: 1,
-    question: "คุณวางแผนลงทุนระยะใด?",
-    options: [
-      { label: "น้อยกว่า 1 ปี", score: 0 },
-      { label: "1–3 ปี", score: 2 },
-      { label: "3–5 ปี", score: 4 },
-      { label: "5–10 ปี", score: 6 },
-      { label: "มากกว่า 10 ปี", score: 8 },
-    ],
-  },
-  {
-    id: "loss_reaction", part: 1,
-    question: "ถ้าพอร์ตลงทุนของคุณลดลง 20% ใน 1 เดือน คุณจะทำอย่างไร?",
-    options: [
-      { label: "ขายทันทีเพื่อลดความเสี่ยง", score: 0 },
-      { label: "ขายบางส่วนเพื่อรักษาเงินต้น", score: 2 },
-      { label: "ถือต่อ รอให้ราคาฟื้น", score: 4 },
-      { label: "ซื้อเพิ่ม เพราะราคาถูกลง", score: 6 },
-    ],
-  },
-  {
-    id: "income_stability", part: 1,
-    question: "รายได้ของคุณมีความมั่นคงเพียงใด?",
-    options: [
-      { label: "ไม่แน่นอน / สัญญาระยะสั้น", score: 0 },
-      { label: "ค่อนข้างแน่นอน", score: 2 },
-      { label: "มั่นคง (ข้าราชการ / บริษัทใหญ่)", score: 4 },
-      { label: "มีรายได้หลายแหล่ง", score: 6 },
-    ],
-  },
-  {
-    id: "goal", part: 1,
-    question: "เป้าหมายหลักของการลงทุนของคุณคืออะไร?",
-    options: [
-      { label: "รักษาเงินต้น ไม่ยอมขาดทุนเลย", score: 0 },
-      { label: "ผลตอบแทนเล็กน้อย รับความเสี่ยงต่ำ", score: 2 },
-      { label: "ผลตอบแทนปานกลาง รับความผันผวนได้บ้าง", score: 4 },
-      { label: "ผลตอบแทนสูงสุด ยอมรับความผันผวนได้มาก", score: 6 },
-    ],
-  },
-  {
-    id: "asset_pref", part: 1,
-    question: "คุณชอบลงทุนในสินทรัพย์ประเภทใด?",
-    options: [
-      { label: "เงินฝาก / ตราสารหนี้ล้วน", score: 0 },
-      { label: "กองทุนผสม (หุ้น + ตราสารหนี้)", score: 2 },
-      { label: "กองทุนหุ้นในประเทศ", score: 4 },
-      { label: "หุ้นทั้งในและต่างประเทศ / สินทรัพย์ทางเลือก", score: 6 },
-    ],
-  },
-  {
-    id: "current_portfolio", part: 1,
-    question: "ปัจจุบันคุณถือสินทรัพย์ประเภทใดบ้าง?",
-    options: [
-      { label: "เงินฝากธนาคาร / พันธบัตรล้วน", score: 0 },
-      { label: "มีกองทุนรวมบ้าง", score: 2 },
-      { label: "มีหุ้นรายตัวหรือกองทุนหุ้น", score: 4 },
-      { label: "มีทั้งหุ้น กองทุน และสินทรัพย์ทางเลือก (ทอง / REITs / คริปโต)", score: 6 },
-    ],
-  },
-  // Part 2: MyFinance extension
-  {
-    id: "emergency_fund", part: 2,
-    question: "เงินสำรองฉุกเฉินของคุณครอบคลุมค่าใช้จ่ายได้กี่เดือน?",
-    options: [
-      { label: "น้อยกว่า 3 เดือน", score: 0 },
-      { label: "3–6 เดือน", score: 2 },
-      { label: "6–12 เดือน", score: 3 },
-      { label: "มากกว่า 12 เดือน", score: 4 },
-    ],
-  },
-  {
-    id: "debt_ratio", part: 2,
-    question: "ภาระผ่อนชำระหนี้คิดเป็นกี่เปอร์เซ็นต์ของรายได้ต่อเดือน?",
-    options: [
-      { label: "มากกว่า 50%", score: 0 },
-      { label: "30–50%", score: 1 },
-      { label: "น้อยกว่า 30%", score: 3 },
-      { label: "ไม่มีหนี้", score: 4 },
-    ],
-  },
-  {
-    id: "insurance_coverage", part: 2,
-    question: "คุณมีประกันชีวิตและประกันสุขภาพที่เพียงพอหรือไม่?",
-    options: [
-      { label: "ไม่มีประกันใดเลย", score: 0 },
-      { label: "มีบางส่วน แต่ไม่เพียงพอ", score: 1 },
-      { label: "มีประกันที่ครอบคลุมพอสมควร", score: 3 },
-      { label: "มีประกันครบถ้วน (ชีวิต+สุขภาพ+อุบัติเหตุ)", score: 4 },
-    ],
-  },
-  {
-    id: "next_goal_timing", part: 2,
-    question: "เป้าหมายการเงินสำคัญถัดไปของคุณต้องการเงินเมื่อใด?",
-    options: [
-      { label: "ภายใน 1 ปี", score: 0 },
-      { label: "1–3 ปี", score: 1 },
-      { label: "3–5 ปี", score: 3 },
-      { label: "5 ปีขึ้นไป", score: 4 },
-    ],
-  },
+type TabKey = "income" | "insurance" | "investment" | "debts";
+
+const TABS: { key: TabKey; label: string; icon: React.ElementType; color: string }[] = [
+  { key: "income",     label: "รายได้ & ครอบครัว",  icon: Banknote,    color: "text-blue-500" },
+  { key: "insurance",  label: "ประกัน",              icon: ShieldCheck, color: "text-emerald-500" },
+  { key: "investment", label: "การลงทุน",            icon: TrendingUp,  color: "text-purple-500" },
+  { key: "debts",      label: "หนี้สิน & เงินสำรอง", icon: Wallet,      color: "text-amber-500" },
 ];
 
-const MAX_SCORE = riskQuestions.reduce((sum, q) => sum + Math.max(...q.options.map(o => o.score)), 0);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function calcRiskLevel(score: number): "conservative" | "moderate" | "aggressive" {
-  const pct = (score / MAX_SCORE) * 100;
-  if (pct <= 35) return "conservative";
-  if (pct <= 65) return "moderate";
-  return "aggressive";
-}
+const thb = (n: number) => n > 0 ? `฿${n.toLocaleString("th-TH")}` : "—";
 
-const riskInfo = {
-  conservative: { label: "ระมัดระวัง", color: "text-blue-600", bg: "bg-blue-50 border-blue-200", desc: "เน้นรักษาเงินต้น ผลตอบแทนมั่นคง รับความผันผวนได้น้อย" },
-  moderate:     { label: "ปานกลาง",   color: "text-amber-600", bg: "bg-amber-50 border-amber-200", desc: "สมดุลระหว่างการเจริญเติบโตและความปลอดภัย รับความผันผวนได้ปานกลาง" },
-  aggressive:   { label: "เชิงรุก",   color: "text-green-600", bg: "bg-green-50 border-green-200", desc: "เน้นผลตอบแทนสูงสุด ยอมรับความผันผวนได้มาก" },
-};
-
-// ─── Helper Component ─────────────────────────────────────────────────────────
-
-function Section({ title, icon: Icon, children, className }: {
-  title: string; icon: React.ElementType; children: React.ReactNode; className?: string;
-}) {
-  return (
-    <Card className={className}>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Icon className="h-4 w-4 text-primary" />
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">{children}</CardContent>
-    </Card>
-  );
-}
-
-function NumField({ label, value, onChange, hint }: {
-  label: string; value: number; onChange: (v: number) => void; hint?: string;
+function NumField({ label, value, onChange, hint, suffix }: {
+  label: string; value: number; onChange: (v: number) => void; hint?: string; suffix?: string;
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-sm">{label}</Label>
-      <Input
-        type="number" min={0} value={value || ""}
-        onChange={e => onChange(Number(e.target.value) || 0)}
-        placeholder="0"
-      />
+      <Label className="text-sm font-medium">{label}</Label>
+      <div className="relative">
+        <Input
+          type="number" min={0} value={value || ""}
+          onChange={e => onChange(Number(e.target.value) || 0)}
+          placeholder="0" className={suffix ? "pr-8" : ""}
+        />
+        {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{suffix}</span>}
+      </div>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+function SummaryPill({ label, value, color = "" }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={cn("text-sm font-semibold", color)}>{value}</span>
+    </div>
+  );
+}
 
-type Tab = "profile" | "risk";
+function SectionCard({ title, icon: Icon, iconColor, children }: {
+  title: string; icon: React.ElementType; iconColor: string; children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3 pt-4">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Icon className={cn("h-4 w-4", iconColor)} />{title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 pb-5">{children}</CardContent>
+    </Card>
+  );
+}
+
+// ─── Tab: Income ──────────────────────────────────────────────────────────────
+
+function IncomeTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
+  const totalAnnual = p.annualSalary + p.bonus + p.otherIncome;
+  const monthlyNet = totalAnnual > 0 ? Math.round((totalAnnual - p.monthlyExpenses * 12) / 12) : 0;
+  return (
+    <div className="space-y-4">
+      {totalAnnual > 0 && (
+        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="รายได้รวม/ปี" value={thb(totalAnnual)} color="text-blue-600" />
+          <SummaryPill label="รายได้/เดือน" value={thb(Math.round(totalAnnual / 12))} />
+          <SummaryPill label="ภาษีหัก ณ ที่จ่าย" value={thb(p.withheldTax)} />
+          {monthlyNet > 0 && <SummaryPill label="เงินเหลือสุทธิ/เดือน" value={thb(monthlyNet)} color="text-emerald-600" />}
+        </div>
+      )}
+      <SectionCard title="สถานะและครอบครัว" icon={User} iconColor="text-primary">
+        <div className="sm:col-span-2 space-y-1">
+          <Label className="text-sm font-medium">สถานะการยื่นภาษี</Label>
+          <Select value={p.filingStatus} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => upd("filingStatus", e.target.value)}>
+            <option value="single">โสด</option>
+            <option value="married_no_income">สมรส — คู่สมรสไม่มีรายได้</option>
+            <option value="married_separate">สมรส — ยื่นภาษีแยก</option>
+            <option value="married_joint">สมรส — ยื่นภาษีรวม</option>
+          </Select>
+        </div>
+        <NumField label="จำนวนบุตร" value={p.numChildren} onChange={v => upd("numChildren", v)} suffix="คน" />
+        <NumField label="บิดา/มารดาที่ดูแล (สูงสุด 2 คน)" value={p.numParents} onChange={v => upd("numParents", Math.min(v, 2))} suffix="คน" />
+        <NumField label="ผู้พิการ/ทุพพลภาพที่ดูแล" value={p.numDisabledDependents} onChange={v => upd("numDisabledDependents", v)} suffix="คน" />
+      </SectionCard>
+      <SectionCard title="รายได้ประจำปี" icon={Banknote} iconColor="text-blue-500">
+        <NumField label="เงินเดือนรวมทั้งปี" value={p.annualSalary} onChange={v => upd("annualSalary", v)} hint="ก่อนหักภาษี" />
+        <NumField label="โบนัส" value={p.bonus} onChange={v => upd("bonus", v)} />
+        <NumField label="รายได้อื่น ๆ" value={p.otherIncome} onChange={v => upd("otherIncome", v)} hint="ฟรีแลนซ์ ดอกเบี้ย เงินปันผล" />
+        <NumField label="รายได้คู่สมรส (ต่อปี)" value={p.spouseIncome} onChange={v => upd("spouseIncome", v)} />
+        <NumField label="ภาษีหัก ณ ที่จ่าย" value={p.withheldTax} onChange={v => upd("withheldTax", v)} hint="จากสลิปเงินเดือนทั้งปี" />
+        <NumField label="ค่าใช้จ่าย/เดือน" value={p.monthlyExpenses} onChange={v => upd("monthlyExpenses", v)} hint="ใช้คำนวณเงินสำรองและแผนการเงิน" />
+      </SectionCard>
+      <SectionCard title="สวัสดิการและกองทุน" icon={Building2} iconColor="text-indigo-500">
+        <NumField label="ประกันสังคม (บาท/ปี)" value={p.socialSecurity} onChange={v => upd("socialSecurity", v)} hint="สูงสุด 9,000 บาท/ปี" />
+        <NumField label="อัตราสมทบ PVD" value={p.providentFundRate} onChange={v => upd("providentFundRate", v)} suffix="%" hint="5%, 10%, 15%" />
+        <NumField label="กองทุนสำรองเลี้ยงชีพ (ต่อปี)" value={p.providentFundAmount} onChange={v => upd("providentFundAmount", v)} hint="ฝั่งลูกจ้างเท่านั้น" />
+      </SectionCard>
+    </div>
+  );
+}
+
+// ─── Tab: Insurance ───────────────────────────────────────────────────────────
+
+function InsuranceTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
+  const lifeTaxDeduct    = Math.min(p.lifeInsurancePremium, 100000);
+  const healthTaxDeduct  = Math.min(p.healthInsurancePremium, 25000);
+  const parentTaxDeduct  = Math.min(p.parentHealthInsurancePremium, 15000);
+  const annuityTaxDeduct = Math.min(p.annuityInsurancePremium, 200000);
+  const totalPremium = p.lifeInsurancePremium + p.healthInsurancePremium + p.parentHealthInsurancePremium + p.annuityInsurancePremium + p.spouseLifeInsurancePremium;
+  return (
+    <div className="space-y-4">
+      {totalPremium > 0 && (
+        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="เบี้ยรวม/ปี" value={thb(totalPremium)} />
+          <SummaryPill label="ลดหย่อนภาษีได้" value={thb(lifeTaxDeduct + healthTaxDeduct + parentTaxDeduct)} color="text-emerald-600" />
+          <SummaryPill label="ประกันบำนาญ" value={p.annuityInsurancePremium > 0 ? thb(annuityTaxDeduct) : "—"} />
+        </div>
+      )}
+      <SectionCard title="ประกันชีวิต & สุขภาพ" icon={Heart} iconColor="text-rose-500">
+        <NumField label="ประกันชีวิตทั่วไป (บาท/ปี)" value={p.lifeInsurancePremium} onChange={v => upd("lifeInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 100,000 บาท" />
+        <NumField label="ประกันสุขภาพตนเอง (บาท/ปี)" value={p.healthInsurancePremium} onChange={v => upd("healthInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 25,000 บาท" />
+        <NumField label="ประกันสุขภาพบิดา/มารดา (บาท/ปี)" value={p.parentHealthInsurancePremium} onChange={v => upd("parentHealthInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 15,000 บาท" />
+        <NumField label="ประกันบำนาญ / แบบสะสมทรัพย์ (บาท/ปี)" value={p.annuityInsurancePremium} onChange={v => upd("annuityInsurancePremium", v)} hint="ลดหย่อนได้ 15% ของรายได้ สูงสุด 200,000 บาท" />
+        <NumField label="ประกันชีวิตคู่สมรส (บาท/ปี)" value={p.spouseLifeInsurancePremium} onChange={v => upd("spouseLifeInsurancePremium", v)} hint="ลดหย่อนได้สูงสุด 10,000 บาท" />
+      </SectionCard>
+      <Card className="bg-emerald-50/50 border-emerald-200 dark:bg-emerald-950/10">
+        <CardContent className="pt-4 pb-4 space-y-2">
+          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">💡 สรุปสิทธิ์ลดหย่อนภาษีจากประกัน</p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            {([["ประกันชีวิต", thb(lifeTaxDeduct)], ["ประกันสุขภาพ", thb(healthTaxDeduct)], ["ประกันสุขภาพบิดา/มารดา", thb(parentTaxDeduct)], ["ประกันบำนาญ", thb(annuityTaxDeduct)]] as [string, string][]).map(([label, val]) => (
+              <div key={label} className="flex justify-between">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="font-medium">{val}</span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t pt-2 flex justify-between text-sm font-semibold">
+            <span>รวมลดหย่อนได้</span>
+            <span className="text-emerald-700">{thb(lifeTaxDeduct + healthTaxDeduct + parentTaxDeduct + annuityTaxDeduct)}</span>
+          </div>
+          <p className="text-xs text-muted-foreground pt-1">
+            ต้องการวิเคราะห์ความคุ้มครอง?{" "}
+            <Link href="/insurance" className="text-primary underline underline-offset-2">ไปที่วิเคราะห์ประกัน →</Link>
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Tab: Investment ──────────────────────────────────────────────────────────
+
+function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
+  const annualIncome = p.annualSalary + p.bonus + p.otherIncome;
+  const totalInvest  = p.rmfAmount + p.ssfAmount + p.thaiEsgAmount + p.ltfAmount;
+  const ssfCap  = Math.min(p.ssfAmount, 200000, annualIncome * 0.30);
+  const rmfCap  = Math.min(p.rmfAmount, annualIncome * 0.30);
+  const esgCap  = Math.min(p.thaiEsgAmount, 300000, annualIncome * 0.30);
+  const deductGroup = Math.min(ssfCap + rmfCap + esgCap + Math.min(p.ltfAmount, annualIncome * 0.15), 500000);
+  return (
+    <div className="space-y-4">
+      {totalInvest > 0 && (
+        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="ลงทุนรวม/ปี" value={thb(totalInvest)} color="text-purple-600" />
+          <SummaryPill label="ลดหย่อนได้ (รวมกลุ่ม)" value={thb(deductGroup)} color="text-emerald-600" />
+          {annualIncome > 0 && <SummaryPill label="% ของรายได้" value={`${((totalInvest / annualIncome) * 100).toFixed(1)}%`} />}
+        </div>
+      )}
+      <SectionCard title="กองทุนลดหย่อนภาษี (บาท/ปี)" icon={TrendingUp} iconColor="text-purple-500">
+        <NumField label="RMF" value={p.rmfAmount} onChange={v => upd("rmfAmount", v)} hint="30% ของรายได้ รวมกลุ่มสูงสุด 500,000 บาท" />
+        <NumField label="SSF" value={p.ssfAmount} onChange={v => upd("ssfAmount", v)} hint="30% ของรายได้ สูงสุด 200,000 บาท" />
+        <NumField label="Thai ESG" value={p.thaiEsgAmount} onChange={v => upd("thaiEsgAmount", v)} hint="30% ของรายได้ สูงสุด 300,000 บาท" />
+        <NumField label="LTF (กองทุนเก่า)" value={p.ltfAmount} onChange={v => upd("ltfAmount", v)} hint="15% ของรายได้ สูงสุด 500,000 บาท" />
+      </SectionCard>
+      {totalInvest === 0 && (
+        <Card className="bg-purple-50/50 border-purple-200 dark:bg-purple-950/10">
+          <CardContent className="pt-4 pb-4 text-sm space-y-1">
+            <p className="font-semibold text-purple-700">📈 ยังไม่มีการลงทุน?</p>
+            <p className="text-muted-foreground">การลงทุนใน RMF/SSF/Thai ESG ช่วยลดภาษีได้สูงสุด 500,000 บาท พร้อมสร้างความมั่งคั่งระยะยาว</p>
+            <Link href="/ai-chat" className="text-primary underline underline-offset-2 block mt-1">ปรึกษา AI ที่ปรึกษา →</Link>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Tab: Debts ───────────────────────────────────────────────────────────────
+
+function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
+  const monthlyIncome   = (p.annualSalary + p.bonus + p.otherIncome) / 12;
+  const dti             = monthlyIncome > 0 ? (p.monthlyDebtPayment / monthlyIncome) * 100 : 0;
+  const emergencyMonths = p.monthlyExpenses > 0 ? p.emergencyFundAmount / p.monthlyExpenses : 0;
+  const dtiColor = dti === 0 ? "" : dti < 30 ? "text-emerald-600" : dti < 50 ? "text-amber-600" : "text-red-500";
+  const efColor  = emergencyMonths === 0 ? "" : emergencyMonths < 3 ? "text-red-500" : emergencyMonths < 6 ? "text-amber-600" : "text-emerald-600";
+  return (
+    <div className="space-y-4">
+      {(p.totalDebt > 0 || p.emergencyFundAmount > 0) && (
+        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="หนี้สินรวม" value={thb(p.totalDebt)} color={p.totalDebt > 0 ? "text-amber-600" : ""} />
+          <SummaryPill label="ผ่อนชำระ/เดือน" value={thb(p.monthlyDebtPayment)} />
+          {dti > 0 && <SummaryPill label="สัดส่วนหนี้/รายได้" value={`${dti.toFixed(1)}%`} color={dtiColor} />}
+          <SummaryPill label="เงินสำรองฉุกเฉิน" value={thb(p.emergencyFundAmount)} />
+          {emergencyMonths > 0 && <SummaryPill label="ครอบคลุม" value={`${emergencyMonths.toFixed(1)} เดือน`} color={efColor} />}
+        </div>
+      )}
+      <SectionCard title="ภาระหนี้สิน" icon={AlertTriangle} iconColor="text-amber-500">
+        <NumField label="หนี้สินรวมทั้งหมด (บาท)" value={p.totalDebt} onChange={v => upd("totalDebt", v)} hint="บ้าน รถ บัตรเครดิต สินเชื่อส่วนตัว" />
+        <NumField label="ยอดผ่อนชำระ/เดือน (บาท)" value={p.monthlyDebtPayment} onChange={v => upd("monthlyDebtPayment", v)} hint="ทุกบัญชีรวมกัน" />
+      </SectionCard>
+      <SectionCard title="เงินออมและสำรอง" icon={Wallet} iconColor="text-emerald-500">
+        <NumField label="เงินสำรองฉุกเฉิน (บาท)" value={p.emergencyFundAmount} onChange={v => upd("emergencyFundAmount", v)} hint="เงินที่พร้อมถอนใช้ได้ทันที" />
+        <NumField label="ค่าใช้จ่ายต่อเดือน (บาท)" value={p.monthlyExpenses} onChange={v => upd("monthlyExpenses", v)} hint="ใช้คำนวณจำนวนเดือนที่สำรองได้" />
+      </SectionCard>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {dti > 0 && (
+          <Card className={cn("border", dti < 30 ? "border-emerald-200 bg-emerald-50/50" : dti < 50 ? "border-amber-200 bg-amber-50/50" : "border-red-200 bg-red-50/50")}>
+            <CardContent className="pt-3 pb-3 text-sm">
+              <p className="font-semibold">{dti < 30 ? "✅ ภาระหนี้อยู่ในเกณฑ์ดี" : dti < 50 ? "⚠️ ภาระหนี้ควรระวัง" : "🚨 ภาระหนี้สูงเกินไป"}</p>
+              <p className="text-muted-foreground mt-0.5">DTI {dti.toFixed(1)}% — แนะนำไม่เกิน 30%</p>
+            </CardContent>
+          </Card>
+        )}
+        {emergencyMonths > 0 && (
+          <Card className={cn("border", emergencyMonths >= 6 ? "border-emerald-200 bg-emerald-50/50" : emergencyMonths >= 3 ? "border-amber-200 bg-amber-50/50" : "border-red-200 bg-red-50/50")}>
+            <CardContent className="pt-3 pb-3 text-sm">
+              <p className="font-semibold">{emergencyMonths >= 6 ? "✅ เงินสำรองเพียงพอ" : emergencyMonths >= 3 ? "⚠️ เงินสำรองควรเพิ่ม" : "🚨 เงินสำรองไม่เพียงพอ"}</p>
+              <p className="text-muted-foreground mt-0.5">{emergencyMonths.toFixed(1)} เดือน — แนะนำอย่างน้อย 6 เดือน</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function MyDataPage() {
-  const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>(
-    (searchParams.get("tab") as Tab | null) === "risk" ? "risk" : "profile"
-  );
-
-  // Financial profile state
+  const [tab, setTab] = useState<TabKey>("income");
   const [profile, setProfile] = useState<FinancialProfile>(defaultProfile);
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileSaved, setProfileSaved] = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
 
-  // Risk assessment state
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [riskPart, setRiskPart] = useState<1 | 2>(1);
-  const [riskResult, setRiskResult] = useState<{ score: number; level: "conservative" | "moderate" | "aggressive" } | null>(null);
-  const [riskLoading, setRiskLoading] = useState(true);
-  const [riskSaving, setRiskSaving] = useState(false);
-
-  // Load data
   useEffect(() => {
-    Promise.all([
-      fetch("/api/user/financial-profile").then(r => r.json()),
-      fetch("/api/user/risk-assessment").then(r => r.json()),
-    ]).then(([profRes, riskRes]) => {
-      if (profRes.data) {
-        const d = profRes.data;
+    fetch("/api/user/financial-profile").then(r => r.json()).then(res => {
+      if (res.data) {
+        const d = res.data;
         setProfile({
           filingStatus: d.filingStatus ?? "single",
           numChildren: Number(d.numChildren ?? 0),
@@ -281,259 +331,85 @@ export default function MyDataPage() {
           monthlyExpenses: Number(d.monthlyExpenses ?? 0),
         });
       }
-      setProfileLoading(false);
-
-      if (riskRes.data) {
-        const a: Record<string, string> = {};
-        (riskRes.data.answers as Array<{questionId: string; answer: string; score: number}>).forEach((ans) => { a[ans.questionId] = ans.answer; });
-        setAnswers(a);
-        setRiskResult({ score: riskRes.data.score, level: riskRes.data.riskLevel });
-      }
-      setRiskLoading(false);
-    }).catch(() => { setProfileLoading(false); setRiskLoading(false); });
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, []);
 
-  const upd = useCallback(<K extends keyof FinancialProfile>(key: K, val: FinancialProfile[K]) => {
-    setProfile(p => ({ ...p, [key]: val }));
+  const upd = useCallback(<K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => {
+    setProfile(p => ({ ...p, [k]: v }));
+    setSaved(false);
   }, []);
 
-  async function saveProfile() {
-    setProfileSaving(true);
+  async function handleSave() {
+    setSaving(true);
     try {
       await fetch("/api/user/financial-profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(profile),
       });
-      setProfileSaved(true);
-      setTimeout(() => setProfileSaved(false), 3000);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
     } finally {
-      setProfileSaving(false);
+      setSaving(false);
     }
   }
 
-  async function saveRisk() {
-    const answeredAll = riskQuestions.every(q => answers[q.id] !== undefined);
-    if (!answeredAll) return;
-
-    const answerArr = riskQuestions.map(q => {
-      const opt = q.options.find(o => o.label === answers[q.id]);
-      return { questionId: q.id, answer: answers[q.id], score: opt?.score ?? 0 };
-    });
-    const totalScore = answerArr.reduce((s, a) => s + a.score, 0);
-    const level = calcRiskLevel(totalScore);
-
-    setRiskSaving(true);
-    try {
-      await fetch("/api/user/risk-assessment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: answerArr, score: totalScore, riskLevel: level }),
-      });
-      setRiskResult({ score: totalScore, level });
-    } finally {
-      setRiskSaving(false);
-    }
-  }
-
-  const part1Qs = riskQuestions.filter(q => q.part === 1);
-  const part2Qs = riskQuestions.filter(q => q.part === 2);
-  const currentPartQs = riskPart === 1 ? part1Qs : part2Qs;
-  const part1Done = part1Qs.every(q => answers[q.id]);
-  const allDone = riskQuestions.every(q => answers[q.id]);
-  const currentProgress = (Object.keys(answers).length / riskQuestions.length) * 100;
-
-  if (profileLoading || riskLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-2xl font-bold">ข้อมูลของฉัน</h1>
-        <p className="text-muted-foreground text-sm mt-1">ข้อมูลนี้จะถูกใช้โดย AI ที่ปรึกษา เครื่องมือคำนวณภาษี และการวิเคราะห์ประกัน</p>
+    <div className="space-y-5 max-w-3xl">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">ข้อมูลของฉัน</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            ข้อมูลนี้ถูกใช้โดย AI ที่ปรึกษา · คำนวณภาษี · วิเคราะห์ประกัน · แผนการเงิน
+          </p>
+        </div>
+        <Button onClick={handleSave} disabled={saving} size="sm">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : saved ? <CheckCircle2 className="h-4 w-4 mr-2 text-emerald-400" /> : <Save className="h-4 w-4 mr-2" />}
+          {saving ? "กำลังบันทึก..." : saved ? "บันทึกแล้ว" : "บันทึก"}
+        </Button>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b gap-1">
-        {([["profile", "โปรไฟล์การเงิน"], ["risk", "ประเมินความเสี่ยง"]] as const).map(([key, label]) => (
+      <div className="flex gap-0 border-b overflow-x-auto">
+        {TABS.map(t => (
           <button
-            key={key}
-            onClick={() => setTab(key)}
+            key={t.key}
+            onClick={() => setTab(t.key)}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
-              tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0",
+              tab === t.key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
-            {label}
-            {key === "risk" && riskResult && (
-              <span className={cn("ml-2 text-xs font-normal", riskInfo[riskResult.level].color)}>
-                [{riskInfo[riskResult.level].label}]
-              </span>
-            )}
+            <t.icon className={cn("h-3.5 w-3.5", tab === t.key ? t.color : "text-muted-foreground")} />
+            {t.label}
           </button>
         ))}
       </div>
 
-      {/* ── Financial Profile Tab ── */}
-      {tab === "profile" && (
-        <div className="space-y-4">
-          {/* Personal */}
-          <Section title="ข้อมูลส่วนตัว" icon={User}>
-            <div className="space-y-1 sm:col-span-2">
-              <Label>สถานะการยื่นภาษี</Label>
-              <Select value={profile.filingStatus} onChange={e => upd("filingStatus", e.target.value)}>
-                <option value="single">โสด</option>
-                <option value="married_no_income">สมรส — คู่สมรสไม่มีรายได้</option>
-                <option value="married_separate">สมรส — ยื่นแยก</option>
-                <option value="married_joint">สมรส — ยื่นรวม</option>
-              </Select>
-            </div>
-            <NumField label="จำนวนบุตร (คน)" value={profile.numChildren} onChange={v => upd("numChildren", v)} />
-            <NumField label="บิดา/มารดาที่ดูแล (คน, สูงสุด 2)" value={profile.numParents} onChange={v => upd("numParents", Math.min(v, 2))} />
-            <NumField label="ผู้พิการ/ทุพพลภาพที่ดูแล (คน)" value={profile.numDisabledDependents} onChange={v => upd("numDisabledDependents", v)} />
-          </Section>
+      {/* Tab Content */}
+      {tab === "income"     && <IncomeTab     p={profile} upd={upd} />}
+      {tab === "insurance"  && <InsuranceTab  p={profile} upd={upd} />}
+      {tab === "investment" && <InvestmentTab p={profile} upd={upd} />}
+      {tab === "debts"      && <DebtsTab      p={profile} upd={upd} />}
 
-          {/* Income */}
-          <Section title="รายได้ (บาท/ปี)" icon={Banknote}>
-            <NumField label="เงินเดือนทั้งปี" value={profile.annualSalary} onChange={v => upd("annualSalary", v)} />
-            <NumField label="โบนัส" value={profile.bonus} onChange={v => upd("bonus", v)} />
-            <NumField label="รายได้อื่น" value={profile.otherIncome} onChange={v => upd("otherIncome", v)} />
-            <NumField label="รายได้คู่สมรส" value={profile.spouseIncome} onChange={v => upd("spouseIncome", v)} />
-            <NumField label="ภาษีหักณที่จ่าย" value={profile.withheldTax} onChange={v => upd("withheldTax", v)} />
-            <NumField label="ค่าใช้จ่าย/เดือน" value={profile.monthlyExpenses} onChange={v => upd("monthlyExpenses", v)} hint="ใช้คำนวณเงินสำรองฉุกเฉิน" />
-          </Section>
-
-          {/* Payroll */}
-          <Section title="ประกันสังคม & กองทุนสำรองเลี้ยงชีพ" icon={ShieldCheck}>
-            <NumField label="ประกันสังคม (บาท/ปี)" value={profile.socialSecurity} onChange={v => upd("socialSecurity", v)} hint="เช่น 9,000" />
-            <NumField label="อัตราสมทบ PVD (%)" value={profile.providentFundRate} onChange={v => upd("providentFundRate", v)} hint="เช่น 5, 10, 15" />
-            <NumField label="PVD รวมทั้งปี (บาท)" value={profile.providentFundAmount} onChange={v => upd("providentFundAmount", v)} hint="เงินสมทบฝั่งลูกจ้างเท่านั้น" />
-          </Section>
-
-          {/* Insurance */}
-          <Section title="เบี้ยประกัน (บาท/ปี)" icon={ShieldCheck}>
-            <NumField label="ประกันชีวิต" value={profile.lifeInsurancePremium} onChange={v => upd("lifeInsurancePremium", v)} />
-            <NumField label="ประกันสุขภาพ" value={profile.healthInsurancePremium} onChange={v => upd("healthInsurancePremium", v)} />
-            <NumField label="ประกันสุขภาพบิดา/มารดา" value={profile.parentHealthInsurancePremium} onChange={v => upd("parentHealthInsurancePremium", v)} />
-            <NumField label="ประกันบำนาญ/แบบสะสมทรัพย์" value={profile.annuityInsurancePremium} onChange={v => upd("annuityInsurancePremium", v)} />
-            <NumField label="ประกันชีวิตคู่สมรส" value={profile.spouseLifeInsurancePremium} onChange={v => upd("spouseLifeInsurancePremium", v)} />
-          </Section>
-
-          {/* Investments */}
-          <Section title="การลงทุนเพื่อลดหย่อนภาษี (บาท/ปี)" icon={TrendingUp}>
-            <NumField label="RMF" value={profile.rmfAmount} onChange={v => upd("rmfAmount", v)} />
-            <NumField label="SSF" value={profile.ssfAmount} onChange={v => upd("ssfAmount", v)} />
-            <NumField label="Thai ESG" value={profile.thaiEsgAmount} onChange={v => upd("thaiEsgAmount", v)} />
-            <NumField label="LTF (กองทุนเก่า)" value={profile.ltfAmount} onChange={v => upd("ltfAmount", v)} />
-          </Section>
-
-          {/* Liabilities + Emergency Fund */}
-          <Section title="หนี้สิน & เงินสำรอง" icon={AlertTriangle}>
-            <NumField label="หนี้สินรวม (บาท)" value={profile.totalDebt} onChange={v => upd("totalDebt", v)} />
-            <NumField label="ยอดผ่อนชำระ/เดือน (บาท)" value={profile.monthlyDebtPayment} onChange={v => upd("monthlyDebtPayment", v)} />
-            <NumField label="เงินสำรองฉุกเฉิน (บาท)" value={profile.emergencyFundAmount} onChange={v => upd("emergencyFundAmount", v)} hint="เงินออมที่พร้อมใช้ได้ทันที" />
-          </Section>
-
-          <div className="flex items-center gap-3">
-            <Button onClick={saveProfile} disabled={profileSaving} className="min-w-32">
-              {profileSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-              {profileSaving ? "กำลังบันทึก..." : "บันทึกข้อมูล"}
-            </Button>
-            {profileSaved && (
-              <span className="flex items-center gap-1 text-sm text-green-600">
-                <CheckCircle2 className="h-4 w-4" /> บันทึกสำเร็จ
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Risk Assessment Tab ── */}
-      {tab === "risk" && (
-        <div className="space-y-4">
-          {/* Progress */}
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <div className="flex justify-between text-xs text-muted-foreground mb-2">
-                <span>ความคืบหน้า: {Object.keys(answers).length}/{riskQuestions.length} คำถาม</span>
-                <span>ส่วนที่ {riskPart}/2 — {riskPart === 1 ? "มาตรฐาน กลต." : "เพิ่มเติม MyFinance"}</span>
-              </div>
-              <Progress value={currentProgress} className="h-2" />
-            </CardContent>
-          </Card>
-
-          {/* Current result banner */}
-          {riskResult && (
-            <Card className={cn("border", riskInfo[riskResult.level].bg)}>
-              <CardContent className="pt-4 pb-3 flex items-center gap-3">
-                <CheckCircle2 className={cn("h-5 w-5", riskInfo[riskResult.level].color)} />
-                <div>
-                  <p className="font-semibold text-sm">ระดับความเสี่ยงของคุณ: <span className={riskInfo[riskResult.level].color}>{riskInfo[riskResult.level].label}</span> ({riskResult.score}/{MAX_SCORE} คะแนน)</p>
-                  <p className="text-xs text-muted-foreground">{riskInfo[riskResult.level].desc}</p>
-                </div>
-                <Button variant="ghost" size="sm" className="ml-auto" onClick={() => { setAnswers({}); setRiskResult(null); setRiskPart(1); }}>
-                  <RefreshCw className="h-4 w-4 mr-1" /> ทำใหม่
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Questions */}
-          <div className="space-y-4">
-            <CardDescription className="font-medium text-foreground">
-              {riskPart === 1 ? "ส่วนที่ 1: แบบประเมินมาตรฐาน (7 คำถาม)" : "ส่วนที่ 2: บริบทการเงินส่วนตัว (4 คำถาม)"}
-            </CardDescription>
-            {currentPartQs.map((q, i) => (
-              <Card key={q.id} className={cn(answers[q.id] ? "border-primary/30" : "")}>
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-sm font-medium mb-3">{i + 1}. {q.question}</p>
-                  <div className="grid gap-2">
-                    {q.options.map(opt => (
-                      <button
-                        key={opt.label}
-                        onClick={() => setAnswers(a => ({ ...a, [q.id]: opt.label }))}
-                        className={cn(
-                          "text-left px-3 py-2 rounded-md border text-sm transition-colors",
-                          answers[q.id] === opt.label
-                            ? "border-primary bg-primary/10 text-primary font-medium"
-                            : "border-border hover:border-primary/50 hover:bg-accent"
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {/* Navigation */}
-          <div className="flex justify-between items-center">
-            {riskPart === 2 ? (
-              <Button variant="outline" onClick={() => setRiskPart(1)}>
-                <ChevronLeft className="h-4 w-4 mr-1" /> ส่วนที่ 1
-              </Button>
-            ) : <div />}
-
-            {riskPart === 1 ? (
-              <Button onClick={() => setRiskPart(2)} disabled={!part1Done}>
-                ส่วนที่ 2 <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            ) : (
-              <Button onClick={saveRisk} disabled={!allDone || riskSaving} className="min-w-36">
-                {riskSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                {riskSaving ? "กำลังบันทึก..." : "บันทึกผลประเมิน"}
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Bottom save */}
+      <div className="flex items-center gap-3 pt-2 border-t">
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+          {saving ? "กำลังบันทึก..." : "บันทึกข้อมูล"}
+        </Button>
+        {saved && <span className="flex items-center gap-1 text-sm text-emerald-600"><CheckCircle2 className="h-4 w-4" />บันทึกสำเร็จ</span>}
+      </div>
     </div>
   );
 }

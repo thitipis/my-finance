@@ -17,10 +17,11 @@ import {
   LogOut,
   Wrench,
   MapPin,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const financeToolPaths = ["/tax", "/insurance", "/goals"];
+const financeToolPaths = ["/tax", "/insurance", "/goals", "/tools"];
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -48,6 +49,9 @@ export default function Sidebar() {
         {/* My Data */}
         <NavItem href="/my-data" label="ข้อมูลของฉัน" icon={Database} active={pathname.startsWith("/my-data")} />
 
+        {/* Financial Plan */}
+        <NavItem href="/financial-plan" label="แผนการเงิน" icon={MapPin} active={pathname.startsWith("/financial-plan")} />
+
         {/* Finance Tools (collapsible) */}
         <button
           onClick={() => setToolsOpen((o) => !o)}
@@ -59,23 +63,21 @@ export default function Sidebar() {
           )}
         >
           <Wrench className="h-4 w-4 shrink-0" />
-          <span className="flex-1 text-left">เครื่องมือการเงิน</span>
+          <span className="flex-1 text-left">เครื่องมือ</span>
           {toolsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         </button>
 
         {toolsOpen && (
           <div className="ml-4 flex flex-col gap-1 border-l pl-3">
-            <NavItem href="/tax"       label="คำนวณภาษี"       icon={Calculator}  active={pathname.startsWith("/tax")} />
-            <NavItem href="/insurance" label="วิเคราะห์ประกัน" icon={Shield}      active={pathname.startsWith("/insurance")} />
-            <NavItem href="/goals"     label="เป้าหมายการเงิน" icon={Target}      active={pathname.startsWith("/goals")} />
+            <NavItem href="/tax"         label="คำนวณภาษี"       icon={Calculator}    active={pathname.startsWith("/tax")} />
+            <NavItem href="/insurance"   label="วิเคราะห์ประกัน" icon={Shield}        active={pathname.startsWith("/insurance")} />
+            <NavItem href="/goals"       label="เป้าหมายการเงิน" icon={Target}        active={pathname.startsWith("/goals")} />
+            <NavItem href="/tools/risk"  label="ประเมินความเสี่ยง" icon={ClipboardList} active={pathname.startsWith("/tools/risk")} />
           </div>
         )}
 
         {/* AI Advisor */}
         <NavItem href="/ai-chat" label="AI ที่ปรึกษา" icon={MessageSquareText} active={pathname.startsWith("/ai-chat")} />
-
-        {/* Financial Plan */}
-        <NavItem href="/financial-plan" label="แผนการเงิน" icon={MapPin} active={pathname.startsWith("/financial-plan")} />
 
         {/* Settings */}
         <NavItem href="/settings" label="ตั้งค่าบัญชี" icon={Settings} active={pathname.startsWith("/settings")} />
