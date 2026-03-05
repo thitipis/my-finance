@@ -4,11 +4,18 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const InsuranceSchema = z.object({
+  // Premiums (for tax deduction)
   lifeInsurancePremium: z.number().min(0).default(0),
   healthInsurancePremium: z.number().min(0).default(0),
   parentHealthInsurancePremium: z.number().min(0).default(0),
   annuityInsurancePremium: z.number().min(0).default(0),
   spouseLifeInsurancePremium: z.number().min(0).default(0),
+  // Coverage details (for recommendation engine)
+  lifeCoverageAmount: z.number().min(0).optional(),
+  healthCoveragePerYear: z.number().min(0).optional(),
+  hasAccidentInsurance: z.boolean().optional(),
+  hasCriticalIllness: z.boolean().optional(),
+  hasDisabilityInsurance: z.boolean().optional(),
 });
 
 export async function GET() {

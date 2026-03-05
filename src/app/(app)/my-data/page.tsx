@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -226,7 +227,10 @@ function NumField({ label, value, onChange, hint }: {
 type Tab = "profile" | "risk";
 
 export default function MyDataPage() {
-  const [tab, setTab] = useState<Tab>("profile");
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<Tab>(
+    (searchParams.get("tab") as Tab | null) === "risk" ? "risk" : "profile"
+  );
 
   // Financial profile state
   const [profile, setProfile] = useState<FinancialProfile>(defaultProfile);

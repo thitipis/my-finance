@@ -23,6 +23,22 @@ type InsuranceState = {
   spouseLifeInsurancePremium: number;
 };
 
+type CoverageState = {
+  lifeCoverageAmount: number;
+  healthCoveragePerYear: number;
+  hasAccidentInsurance: boolean;
+  hasCriticalIllness: boolean;
+  hasDisabilityInsurance: boolean;
+};
+
+const defaultCoverage: CoverageState = {
+  lifeCoverageAmount: 0,
+  healthCoveragePerYear: 0,
+  hasAccidentInsurance: false,
+  hasCriticalIllness: false,
+  hasDisabilityInsurance: false,
+};
+
 interface Recommendation {
   type: string;
   titleTh: string;
@@ -55,6 +71,7 @@ export default function InsurancePage() {
     annuityInsurancePremium: 0,
     spouseLifeInsurancePremium: 0,
   });
+  const [coverage, setCoverage]         = useState<CoverageState>(defaultCoverage);
   const [saved, setSaved]               = useState(false);
   const [saving, setSaving]             = useState(false);
   const [loading, setLoading]           = useState(true);
@@ -75,6 +92,13 @@ export default function InsurancePage() {
           annuityInsurancePremium: Number(insRes.data.annuityInsurancePremium ?? 0),
           spouseLifeInsurancePremium: Number(insRes.data.spouseLifeInsurancePremium ?? 0),
         });
+        setCoverage({
+          lifeCoverageAmount: Number(insRes.data.lifeCoverageAmount ?? 0),
+          healthCoveragePerYear: Number(insRes.data.healthCoveragePerYear ?? 0),
+          hasAccidentInsurance: Boolean(insRes.data.hasAccidentInsurance),
+          hasCriticalIllness: Boolean(insRes.data.hasCriticalIllness),
+          hasDisabilityInsurance: Boolean(insRes.data.hasDisabilityInsurance),
+        });
       }
       setLoading(false);
       if (recRes.data) setRecommendations(recRes.data as Recommendation[]);
@@ -92,7 +116,7 @@ export default function InsurancePage() {
     await fetch("/api/insurance", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
+      body: JSON.stringify({ ...values, ...coverage }),
     });
     setSaving(false);
     setSaved(true);
@@ -213,6 +237,66 @@ export default function InsurancePage() {
           )}
         </div>
       )}
+
+      {/* Coverage details card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">ความคุ้มครองที่มีอยู่</CardTitle>
+          <CardDescription>ระบุรายละเอียดเพื่อให้ระบบวิเคราะห์ช่องว่างได้ถูกต้อง</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Checkboxes */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {([
+              { key: "hasAccidentInsurance" as const, label: "ประกันอุบัติเหตุ (PA)" },
+              { key: "hasCriticalIllness"   as const, label: "ประกันโรคร้ายแรง" },
+              { key: "hasDisabilityInsurance" as const, label: "ประกันทุพพลภาพ" },
+            ]).map(({ key, label }) => (
+              <label key={key} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                coverage[key] ? "bg-emerald-50 border-emerald-300" : "hover:bg-muted/40"
+              }`}>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-emerald-600"
+                  checked={coverage[key]}
+                  onChange={e => { setSaved(false); setCoverage(prev => ({ ...prev, [key]: e.target.checked })); }}
+                />
+                <span className="text-sm font-medium">{label}</span>
+                {coverage[key] && <CheckCircle2 className="h-4 w-4 text-emerald-600 ml-auto" />}
+              </label>
+            ))}
+          </div>
+          {/* Coverage amounts */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label>ทุนประกันชีวิต (บาท)</Label>
+              <Input
+                type="number" min={0}
+                value={coverage.lifeCoverageAmount || ""}
+                onChange={e => { setSaved(false); setCoverage(p => ({ ...p, lifeCoverageAmount: Number(e.target.value) || 0 })); }}
+                placeholder="เช่น 3,000,000"
+              />
+              <p className="text-xs text-muted-foreground">แนะนำ: 10 เท่าของรายได้ต่อปี</p>
+            </div>
+            <div className="space-y-1">
+              <Label>วงเงินประกันสุขภาพต่อปี (บาท)</Label>
+              <Input
+                type="number" min={0}
+                value={coverage.healthCoveragePerYear || ""}
+                onChange={e => { setSaved(false); setCoverage(p => ({ ...p, healthCoveragePerYear: Number(e.target.value) || 0 })); }}
+                placeholder="เช่น 500,000"
+              />
+              <p className="text-xs text-muted-foreground">วงเงินคุ้มครองค่ารักษาพยาบาลรวมต่อปี</p>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={saving} size="sm">
+              {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />กำลังบันทึก…</> : "บันทึกข้อมูลความคุ้มครอง"}
+            </Button>
+            {saved && <span className="ml-3 text-sm text-emerald-600 self-center">✓ บันทึกแล้ว</span>}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Premium entry form (collapsible) */}
       <Card>

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Calculator, ChevronDown, ChevronUp, Info, Sparkles, Database, Save, CheckCircle2, Loader2 } from "lucide-react";
+import { Calculator, ChevronDown, ChevronUp, Info, Sparkles, Database, Save, CheckCircle2, Loader2, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,11 +79,28 @@ export default function TaxPage() {
   const [savingResult, setSavingResult]   = useState(false);
   const [savedResultId, setSavedResultId] = useState<string | null>(null);
 
+  // History
+  interface TaxHistoryItem {
+    id: string;
+    taxOwed: number;
+    taxRefund: number;
+    effectiveRate: number;
+    createdAt: string;
+    taxYear: { year: number; labelTh: string };
+  }
+  const [history, setHistory]           = useState<TaxHistoryItem[]>([]);
+  const [showHistory, setShowHistory]   = useState(false);
+  const [deletingId, setDeletingId]     = useState<string | null>(null);
+
   // Load tax years + config
   useEffect(() => {
     fetch("/api/tax/years")
       .then((r) => r.json())
       .then((d) => { if (d.success) setYears(d.data); });
+    // Load history
+    fetch("/api/tax/results")
+      .then(r => r.json())
+      .then(d => { if (d.data) setHistory(d.data); });
   }, []);
 
   useEffect(() => {
@@ -204,12 +221,23 @@ export default function TaxPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (data.data?.id) setSavedResultId(data.data.id);
+      if (data.data?.id) {
+        setSavedResultId(data.data.id);
+        setHistory(prev => [data.data, ...prev]);
+      }
     } catch {
       // ignore
     } finally {
       setSavingResult(false);
     }
+  };
+
+  const handleDeleteHistory = async (id: string) => {
+    if (!confirm("ลบประวัติการคำนวณนี้?")) return;
+    setDeletingId(id);
+    await fetch(`/api/tax/results/${id}`, { method: "DELETE" });
+    setHistory(prev => prev.filter(h => h.id !== id));
+    setDeletingId(null);
   };
 
   const visibleDeductions = showAllDeductions ? deductionTypes : deductionTypes.slice(0, 4);
@@ -476,6 +504,68 @@ export default function TaxPage() {
           )}
         </div>
       </div>
+
+      {/* Tax History */}
+      {history.length > 0 && (
+        <Card>
+          <CardHeader
+            className="pb-3 cursor-pointer"
+            onClick={() => setShowHistory(v => !v)}
+          >
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">
+                ประวัติการคำนวณ ({history.length} รายการ)
+              </CardTitle>
+              {showHistory
+                ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              }
+            </div>
+          </CardHeader>
+          {showHistory && (
+            <CardContent className="space-y-2">
+              {history.map(h => (
+                <div
+                  key={h.id}
+                  className="flex items-center justify-between p-3 rounded-lg border text-sm"
+                >
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <p className="font-medium">{h.taxYear.labelTh}</p>
+                      <p className="text-xs text-muted-foreground">
+                        บันทึกเมื่อ {new Date(h.createdAt).toLocaleDateString("th-TH")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className={Number(h.taxRefund) >= 0 ? "text-emerald-600 font-medium" : "text-red-500 font-medium"}>
+                        {Number(h.taxRefund) >= 0
+                          ? `คืน ฿${Number(h.taxRefund).toLocaleString("th-TH")}`
+                          : `จ่ายเพิ่ม ฿${Math.abs(Number(h.taxRefund)).toLocaleString("th-TH")}`
+                        }
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        อัตราจริง {Number(h.effectiveRate).toFixed(2)}%
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteHistory(h.id)}
+                      disabled={deletingId === h.id}
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      {deletingId === h.id
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <Trash2 className="h-4 w-4" />
+                      }
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
