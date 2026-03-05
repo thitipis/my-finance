@@ -23,7 +23,8 @@ const TONE_INSTRUCTIONS: Record<number, string> = {
 };
 
 type FProfile = Awaited<ReturnType<typeof prisma.financialProfile.findUnique>>;
-type FRisk   = Awaited<ReturnType<typeof prisma.riskAssessment.findUnique>>;
+type FRisk    = Awaited<ReturnType<typeof prisma.riskAssessment.findUnique>>;
+type FPlan    = Awaited<ReturnType<typeof prisma.financialPlan.findUnique>>;
 
 function buildFinancialContext(profile: FProfile, risk: FRisk): string {
   if (!profile && !risk) return "ยังไม่มีข้อมูลโปรไฟล์การเงินของผู้ใช้";
@@ -32,7 +33,8 @@ function buildFinancialContext(profile: FProfile, risk: FRisk): string {
   const lines: string[] = ["=== ข้อมูลการเงินของผู้ใช้ ==="];
 
   if (risk) {
-    const riskLabel = { conservative: "ระมัดระวัง", moderate: "ปานกลาง", aggressive: "เชิงรุก" }[risk.riskLevel];
+    const riskLabels: Record<string, string> = { conservative: "ระมัดระวัง", moderate: "ปานกลาง", aggressive: "เชิงรุก" };
+    const riskLabel = riskLabels[risk.riskLevel] ?? risk.riskLevel;
     lines.push(`ระดับความเสี่ยง: ${riskLabel} (คะแนน ${risk.score}/100)`);
   }
 
@@ -77,6 +79,38 @@ function buildFinancialContext(profile: FProfile, risk: FRisk): string {
   return lines.join("\n");
 }
 
+function buildPlanContext(plan: FPlan): string {
+  if (!plan) return "";
+  const fmt = (n: number) => n.toLocaleString("th-TH");
+  const lines: string[] = ["=== แผนการเงินส่วนตัว ==="];
+
+  if (plan.currentAge && plan.retirementAge) {
+    const yearsLeft = plan.retirementAge - plan.currentAge;
+    lines.push(`อายุปัจจุบัน: ${plan.currentAge} ปี | เป้าเกษียณ: ${plan.retirementAge} ปี (อีก ${yearsLeft} ปี)`);
+  }
+  if (plan.monthlyInvestable) {
+    lines.push(`เงินลงทุน/ออมได้ต่อเดือน: ${fmt(Number(plan.monthlyInvestable))} บาท`);
+  }
+  if (plan.currentSavings) {
+    lines.push(`เงินออม/ลงทุนปัจจุบัน: ${fmt(Number(plan.currentSavings))} บาท`);
+  }
+  if (plan.expectedReturn) lines.push(`ผลตอบแทนคาดหวัง: ${plan.expectedReturn}%/ปี`);
+  if (plan.inflationRate) lines.push(`เงินเฟ้อที่ใช้คำนวณ: ${plan.inflationRate}%/ปี`);
+  if (plan.monthlyRetirementNeeds) {
+    lines.push(`ต้องการเงินหลังเกษียณ: ${fmt(Number(plan.monthlyRetirementNeeds))} บาท/เดือน`);
+  }
+
+  const goals: string[] = [];
+  if (plan.hasHomeGoal && plan.homePurchaseYears) goals.push(`ซื้อบ้าน ${fmt(Number(plan.homeBudget ?? 0))} บาท (อีก ${plan.homePurchaseYears} ปี)`);
+  if (plan.hasCarGoal  && plan.carPurchaseYears)  goals.push(`ซื้อรถ ${fmt(Number(plan.carBudget ?? 0))} บาท (อีก ${plan.carPurchaseYears} ปี)`);
+  if (plan.hasEducationGoal && plan.educationYears) goals.push(`ทุนการศึกษา ${fmt(Number(plan.educationBudget ?? 0))} บาท (อีก ${plan.educationYears} ปี)`);
+  if (goals.length > 0) lines.push(`เป้าหมายชีวิต: ${goals.join(" | ")}`);
+  if (plan.emergencyFundMonths) lines.push(`เป้าเงินสำรองฉุกเฉิน: ${plan.emergencyFundMonths} เดือน`);
+
+  lines.push("=== สิ้นสุดแผนการเงิน ===");
+  return lines.join("\n");
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -94,11 +128,12 @@ export async function POST(req: NextRequest) {
   const { messages } = parsed.data;
 
   // Fetch all user context in parallel
-  const [adminPromptRow, profile, riskAssessment, aiSettings] = await Promise.all([
+  const [adminPromptRow, profile, riskAssessment, aiSettings, financialPlan] = await Promise.all([
     prisma.adminPrompt.findUnique({ where: { key: "main_system_prompt" } }),
     prisma.financialProfile.findUnique({ where: { userId: session.user.id } }),
     prisma.riskAssessment.findUnique({ where: { userId: session.user.id } }),
     prisma.aiSettings.findUnique({ where: { userId: session.user.id } }),
+    prisma.financialPlan.findUnique({ where: { userId: session.user.id } }),
   ]);
 
   const toneLevel = aiSettings?.toneLevel ?? 3;
@@ -111,13 +146,15 @@ export async function POST(req: NextRequest) {
   const basePrompt = adminPromptRow?.content ?? "คุณคือ MyFinance AI ที่ปรึกษาการเงินส่วนตัวสัญชาติไทย";
   const customAddition = aiSettings?.customPrompt ? `\nบริบทเพิ่มเติมจากผู้ใช้: ${aiSettings.customPrompt}` : "";
 
+  const planContext = buildPlanContext(financialPlan);
   const systemPrompt = [
     basePrompt,
     `\nสไตล์การตอบ: ${toneInstruction}`,
     riskInstruction,
     buildFinancialContext(profile, riskAssessment),
+    planContext,
     customAddition,
-  ].join("\n\n").trim();
+  ].filter(Boolean).join("\n\n").trim();
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });

@@ -16,6 +16,7 @@ import {
   TrendingUp,
   LogOut,
   Wrench,
+  MapPin,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -72,6 +73,9 @@ export default function Sidebar() {
 
         {/* AI Advisor */}
         <NavItem href="/ai-chat" label="AI ที่ปรึกษา" icon={MessageSquareText} active={pathname.startsWith("/ai-chat")} />
+
+        {/* Financial Plan */}
+        <NavItem href="/financial-plan" label="แผนการเงิน" icon={MapPin} active={pathname.startsWith("/financial-plan")} />
 
         {/* Settings */}
         <NavItem href="/settings" label="ตั้งค่าบัญชี" icon={Settings} active={pathname.startsWith("/settings")} />

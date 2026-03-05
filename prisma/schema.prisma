@@ -69,6 +69,7 @@ model User {
   riskAssessment   RiskAssessment?
   taxResults       TaxResult[]
   aiSettings       AiSettings?
+  financialPlan    FinancialPlan?
 
   @@map("users")
 }
@@ -400,6 +401,46 @@ model AiSettings {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("ai_settings")
+}
+
+// ─── Financial Plan ──────────────────────────────────────────────────────────
+
+model FinancialPlan {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  // Step 1 — Life stage
+  currentAge       Int?    @map("current_age")
+  maritalStatus    String? @default("single") @map("marital_status")
+  numChildrenPlan  Int?    @default(0) @map("num_children_plan")
+
+  // Step 2 — Goals
+  retirementAge          Int?     @default(60) @map("retirement_age")
+  monthlyRetirementNeeds Decimal? @map("monthly_retirement_needs") @db.Decimal(15, 2)
+  hasHomeGoal            Boolean  @default(false) @map("has_home_goal")
+  homePurchaseYears      Int?     @map("home_purchase_years")
+  homeBudget             Decimal? @map("home_budget") @db.Decimal(15, 2)
+  hasCarGoal             Boolean  @default(false) @map("has_car_goal")
+  carPurchaseYears       Int?     @map("car_purchase_years")
+  carBudget              Decimal? @map("car_budget") @db.Decimal(15, 2)
+  hasEducationGoal       Boolean  @default(false) @map("has_education_goal")
+  educationYears         Int?     @map("education_years")
+  educationBudget        Decimal? @map("education_budget") @db.Decimal(15, 2)
+  emergencyFundMonths    Int?     @default(6) @map("emergency_fund_months")
+
+  // Step 3 — Planner (slider params)
+  monthlyInvestable    Decimal? @map("monthly_investable") @db.Decimal(15, 2)
+  currentSavings       Decimal? @default(0) @map("current_savings") @db.Decimal(15, 2)
+  expectedReturn       Decimal? @default(7) @map("expected_return") @db.Decimal(5, 2)
+  inflationRate        Decimal? @default(3) @map("inflation_rate") @db.Decimal(5, 2)
+  targetWealthOverride Decimal? @map("target_wealth_override") @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("financial_plans")
 }
 
 // ─── Admin System Prompt ──────────────────────────────────────────────────────
