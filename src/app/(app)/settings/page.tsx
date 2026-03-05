@@ -83,7 +83,7 @@ export default function SettingsPage() {
           ) : (
             <>
               <div className="flex items-center gap-3">
-                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
+                <div className="h-12 w-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg shrink-0">
                   {avatarLetter}
                 </div>
                 <div>
@@ -159,13 +159,14 @@ export default function SettingsPage() {
 
       {/* Upgrade banner (free users only) */}
       {profile?.tier !== "premium" && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="pt-4 pb-4 flex items-center justify-between">
+        <Card className="border-primary/40 bg-gradient-to-r from-primary/5 to-violet-500/5">
+          <CardContent className="pt-4 pb-4 flex items-center justify-between gap-4">
             <div>
-              <p className="font-semibold">อัปเกรดเป็น Premium</p>
+              <p className="font-semibold">✨ อัปเกรดเป็น Premium</p>
               <p className="text-sm text-muted-foreground">ปลดล็อก AI Advisor และรายงานเชิงลึก</p>
+              <p className="text-xs text-muted-foreground mt-0.5">เริ่มต้นเพียง ฿99 / เดือน</p>
             </div>
-            <Button>ดูแพลน</Button>
+            <Button className="shrink-0">ดูแผน</Button>
           </CardContent>
         </Card>
       )}

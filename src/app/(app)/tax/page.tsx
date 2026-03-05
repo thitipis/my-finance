@@ -425,13 +425,35 @@ export default function TaxPage() {
                     {result.isRefund ? "🎉 ได้รับคืนภาษี" : "💳 ต้องชำระภาษีเพิ่ม"}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className={`text-4xl font-bold mb-1 ${result.isRefund ? "text-emerald-600" : "text-red-500"}`}>
+                <CardContent className="space-y-3">
+                  <div className={`text-4xl font-bold ${result.isRefund ? "text-emerald-600" : "text-red-500"}`}>
                     {result.isRefund ? "+" : ""}{formatCurrency(Math.abs(result.taxOwed))}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    อัตราภาษีที่แท้จริง {result.effectiveRate}% | ขั้นภาษีสูงสุด {result.marginalBracket}%
-                  </p>
+                  {/* Stat pills */}
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    {[
+                      { label: "อัตราจริง", value: `${result.effectiveRate}%` },
+                      { label: "ขั้นภาษีสูงสุด", value: `${result.marginalBracket}%` },
+                      { label: "เงินได้สุทธิ์", value: formatCurrency(result.taxableIncome) },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="bg-background/60 rounded-lg py-1.5 px-1">
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className="text-sm font-bold">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Effective rate bar */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>0%</span><span>อัตราภาษีจริง {result.effectiveRate}%</span><span>35%</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${result.effectiveRate <= 10 ? "bg-emerald-500" : result.effectiveRate <= 20 ? "bg-amber-500" : "bg-red-500"}`}
+                        style={{ width: `${Math.min(100, (result.effectiveRate / 35) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
