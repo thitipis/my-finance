@@ -70,6 +70,7 @@ model User {
   taxResults       TaxResult[]
   aiSettings       AiSettings?
   financialPlan    FinancialPlan?
+  portfolioAssets  PortfolioAsset[]
 
   @@map("users")
 }
@@ -463,3 +464,22 @@ model AdminPrompt {
   @@map("admin_prompts")
 }
 
+
+// ─── Portfolio Assets ────────────────────────────────────────────────────────
+
+model PortfolioAsset {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  name         String
+  group        String   @default("other") // "thai" | "international" | "other"
+  emoji        String   @default("💰")
+  currentValue Decimal  @default(0) @map("current_value") @db.Decimal(15, 2)
+  isBuiltIn    Boolean  @default(false) @map("is_built_in")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("portfolio_assets")
+}

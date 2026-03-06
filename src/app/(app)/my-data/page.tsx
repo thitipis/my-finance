@@ -10,8 +10,8 @@ import {
   User, Banknote, ShieldCheck, TrendingUp, AlertTriangle,
   Save, Loader2, CheckCircle2, Wallet, Building2, Heart,
   ShieldAlert, Activity, UserCheck, AlertCircle, ExternalLink,
-  Calendar, MapPin, Coins, BarChart3, Globe, Layers, Bitcoin,
-  ChevronDown, ChevronUp, Landmark,
+  MapPin, Coins, BarChart3, Globe, Layers, Bitcoin,
+  ChevronDown, ChevronUp, Landmark, Plus, Trash2, X, LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -66,14 +66,13 @@ const defaultProfile: FinancialProfile = {
 
 // ─── Tab Types ───────────────────────────────────────────────────────────────
 
-type TabKey = "income" | "insurance" | "investment" | "debts" | "retirement";
+type TabKey = "income" | "insurance" | "investment" | "debts";
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType; color: string }[] = [
   { key: "income",     label: "รายได้ & ครอบครัว",  icon: Banknote,    color: "text-blue-500" },
   { key: "insurance",  label: "ประกัน",              icon: ShieldCheck, color: "text-emerald-500" },
   { key: "investment", label: "การลงทุน",            icon: TrendingUp,  color: "text-purple-500" },
   { key: "debts",      label: "หนี้สิน & เงินสำรอง", icon: Wallet,      color: "text-amber-500" },
-  { key: "retirement", label: "แผนเกษียณ",        icon: Calendar,    color: "text-indigo-500" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -367,98 +366,113 @@ const TAX_FUNDS = [
   },
 ];
 
-const PERSONAL_ASSETS = [
-  {
-    key: "goldAmount" as keyof FinancialProfile,
-    emoji: "🏅", label: "ทองคำ", sublabel: "Gold / Gold Savings",
-    color: "text-yellow-700", bg: "bg-yellow-50 dark:bg-yellow-950/30", border: "border-yellow-200",
-    hint: "ทองคำแท่ง บัญชีทองคำ กองทุนทอง",
-    trend: "+5.2%", trendUp: true,
-  },
-  {
-    key: "cryptoAmount" as keyof FinancialProfile,
-    emoji: "₿", label: "Crypto", sublabel: "Bitcoin / ETH / Alt",
-    color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-950/30", border: "border-orange-200",
-    hint: "มูลค่าตลาด ณ วันนี้ (THB)",
-    trend: "+18.7%", trendUp: true,
-  },
-  {
-    key: "etfAmount" as keyof FinancialProfile,
-    emoji: "📊", label: "ETF", sublabel: "ETF ไทย / ต่างประเทศ",
-    color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-950/30", border: "border-cyan-200",
-    hint: "S&P500 ETF, SET50 ETF, Gold ETF ฯลฯ",
-    trend: "+12.1%", trendUp: true,
-  },
-  {
-    key: "thaiStockAmount" as keyof FinancialProfile,
-    emoji: "🇹🇭", label: "หุ้นไทย", sublabel: "Thai Stocks (SET/MAI)",
-    color: "text-red-600", bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-200",
-    hint: "มูลค่าตลาดพอร์ตหุ้นไทย",
-    trend: "-2.3%", trendUp: false,
-  },
-  {
-    key: "foreignStockAmount" as keyof FinancialProfile,
-    emoji: "🌎", label: "หุ้นต่างประเทศ", sublabel: "Foreign Stocks (US/EU/JP)",
-    color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-950/30", border: "border-purple-200",
-    hint: "US Stocks, DCA Nasdaq ผ่าน broker ต่างประเทศ",
-    trend: "+9.4%", trendUp: true,
-  },
-  {
-    key: "otherInvestAmount" as keyof FinancialProfile,
-    emoji: "🏢", label: "อื่น ๆ", sublabel: "REITs / Bond / P2P / etc.",
-    color: "text-slate-600", bg: "bg-slate-50 dark:bg-slate-950/30", border: "border-slate-200",
-    hint: "REIT, ตราสารหนี้, P2P lending, ทรัพย์สินอื่น ๆ",
-    trend: "+3.8%", trendUp: true,
-  },
-];
+const PERSONAL_EMOJIS = ["💰","📈","🏠","🚗","🌾","💎","🏦","🪙","🎯","🌐","🏗️","🛢️","☁️","🤖"];
+
+type PortfolioAsset = {
+  id: string; name: string;
+  group: "thai" | "international" | "other";
+  emoji: string; currentValue: number; isBuiltIn: boolean; sortOrder: number;
+};
+
+const GROUP_CONFIG: Record<string, { label: string; borderColor: string; bg: string }> = {
+  thai:          { label: "🇹🇭 ไทย",          borderColor: "border-red-300",   bg: "bg-red-50/60 dark:bg-red-950/20" },
+  international: { label: "🌎 ต่างประเทศ",   borderColor: "border-blue-300",  bg: "bg-blue-50/60 dark:bg-blue-950/20" },
+  other:         { label: "💰 อื่น ๆ",         borderColor: "border-slate-300", bg: "bg-slate-50/60 dark:bg-slate-950/20" },
+};
 
 function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
   const [view, setView] = useState<"tax" | "personal">("tax");
+  const [assets, setAssets]         = useState<PortfolioAsset[]>([]);
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
+  const [assetsLoading, setAssetsLoading] = useState(false);
+  const [addingGroup, setAddingGroup] = useState<string | null>(null);
+  const [addForm, setAddForm]         = useState({ name: "", emoji: "💰", currentValue: "" });
+  const [addSaving, setAddSaving]     = useState(false);
+  const updateTimers = useState<Record<string, ReturnType<typeof setTimeout>>>({})[0];
+
   const annualIncome = p.annualSalary + p.bonus + p.otherIncome;
-
-  // Tax fund totals
-  const taxTotal   = (p.rmfAmount + p.ssfAmount + p.thaiEsgAmount + p.ltfAmount + p.providentFundAmount);
-  const ssfCap     = Math.min(p.ssfAmount, 200_000, annualIncome * 0.30);
-  const rmfCap     = Math.min(p.rmfAmount + p.providentFundAmount, annualIncome * 0.30, 500_000);
-  const esgCap     = Math.min(p.thaiEsgAmount, 300_000, annualIncome * 0.30);
-  const deductGrp  = Math.min(ssfCap + rmfCap + esgCap + Math.min(p.ltfAmount, annualIncome * 0.15), 500_000);
-
-  // Personal portfolio totals
-  const personal    = PERSONAL_ASSETS.map(a => ({ ...a, value: p[a.key] as number }));
-  const persTotal   = personal.reduce((s, a) => s + a.value, 0);
+  const taxTotal    = p.rmfAmount + p.ssfAmount + p.thaiEsgAmount + p.ltfAmount + p.providentFundAmount;
+  const ssfCap      = Math.min(p.ssfAmount, 200_000, annualIncome * 0.30);
+  const rmfCap      = Math.min(p.rmfAmount + p.providentFundAmount, annualIncome * 0.30, 500_000);
+  const esgCap      = Math.min(p.thaiEsgAmount, 300_000, annualIncome * 0.30);
+  const deductGrp   = Math.min(ssfCap + rmfCap + esgCap + Math.min(p.ltfAmount, annualIncome * 0.15), 500_000);
+  const persTotal   = assets.reduce((s, a) => s + a.currentValue, 0);
   const grandTotal  = taxTotal + persTotal;
+
+  const fetchAssets = () => {
+    setAssetsLoading(true);
+    fetch("/api/user/portfolio-assets").then(r => r.json()).then(d => {
+      setAssets(d.data?.map((a: PortfolioAsset) => ({ ...a, currentValue: Number(a.currentValue) })) ?? []);
+      setAssetsLoaded(true);
+      setAssetsLoading(false);
+    }).catch(() => setAssetsLoading(false));
+  };
+
+  useEffect(() => {
+    if (view === "personal" && !assetsLoaded) fetchAssets();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  const handleValueChange = (id: string, val: number) => {
+    setAssets(prev => prev.map(a => a.id === id ? { ...a, currentValue: val } : a));
+    if (updateTimers[id]) clearTimeout(updateTimers[id]);
+    updateTimers[id] = setTimeout(() => {
+      fetch(`/api/user/portfolio-assets/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentValue: val }),
+      });
+    }, 600);
+  };
+
+  const handleRemove = async (id: string, isBuiltIn: boolean) => {
+    await fetch(`/api/user/portfolio-assets/${id}`, { method: "DELETE" });
+    if (isBuiltIn) {
+      // Built-in: API zeroes the value; reflect locally
+      setAssets(prev => prev.map(a => a.id === id ? { ...a, currentValue: 0 } : a));
+    } else {
+      setAssets(prev => prev.filter(a => a.id !== id));
+    }
+  };
+
+  const handleAdd = async (group: string) => {
+    if (!addForm.name.trim()) return;
+    setAddSaving(true);
+    const res = await fetch("/api/user/portfolio-assets", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: addForm.name.trim(), emoji: addForm.emoji, group, currentValue: parseFloat(addForm.currentValue) || 0 }),
+    });
+    const data = await res.json();
+    if (res.ok && data.data) setAssets(prev => [...prev, { ...data.data, currentValue: Number(data.data.currentValue) }]);
+    setAddSaving(false);
+    setAddingGroup(null);
+    setAddForm({ name: "", emoji: "💰", currentValue: "" });
+  };
 
   return (
     <div className="space-y-4">
-      {/* ── Zone Toggle ── */}
+      {/* Zone Toggle */}
       <div className="flex p-1 rounded-xl bg-muted/50 border gap-1">
         {(["tax", "personal"] as const).map(v => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={cn(
-              "flex-1 rounded-lg py-2 text-sm font-semibold transition-all",
-              view === v
-                ? "bg-background shadow text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
+          <button key={v} onClick={() => setView(v)}
+            className={cn("flex-1 rounded-lg py-2 text-sm font-semibold transition-all",
+              view === v ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}
           >
             {v === "tax" ? "🏛️ กองทุนลดหย่อนภาษี" : "📈 พอร์ตลงทุนส่วนตัว"}
           </button>
         ))}
       </div>
 
-      {/* ── Grand Total Banner ── */}
+      {/* Grand total banner */}
       {grandTotal > 0 && (
         <div className="flex flex-wrap gap-4 px-4 py-3 rounded-xl bg-muted/50 border">
           <SummaryPill label="รวมทุกสินทรัพย์" value={thb(grandTotal)} color="text-indigo-600" />
           {taxTotal > 0 && <SummaryPill label="กองทุนภาษี/ปี" value={thb(taxTotal)} color="text-violet-600" />}
           {persTotal > 0 && <SummaryPill label="พอร์ตส่วนตัว" value={thb(persTotal)} color="text-blue-600" />}
-          {annualIncome > 0 && <SummaryPill label="ลงทุน/รายได้" value={`${((grandTotal / annualIncome) * 100).toFixed(0)}%`} />}
+          {annualIncome > 0 && grandTotal > 0 && <SummaryPill label="ลงทุน/รายได้" value={`${((grandTotal / annualIncome) * 100).toFixed(0)}%`} />}
         </div>
       )}
 
-      {/* ── Tax Fund Zone ── */}
+      {/* ── TAX ZONE ── */}
       {view === "tax" && (
         <div className="space-y-3">
           {deductGrp > 0 && (
@@ -472,7 +486,6 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
               </div>
             </div>
           )}
-
           {TAX_FUNDS.map(fund => {
             const Icon  = fund.icon;
             const value = p[fund.key] as number;
@@ -493,35 +506,25 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
                       <span className="font-semibold text-sm">{fund.label}</span>
                       <span className="text-xs text-muted-foreground">{fund.sublabel}</span>
                       {value > 0 && cap !== null && (
-                        <span className={cn(
-                          "ml-auto text-xs font-medium px-2 py-0.5 rounded-full",
-                          pct! >= 100 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                        )}>
+                        <span className={cn("ml-auto text-xs font-medium px-2 py-0.5 rounded-full",
+                          pct! >= 100 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
                           {pct! >= 100 ? "ใช้ครบ ✓" : `${pct!.toFixed(0)}%`}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
                       <Label className="text-xs shrink-0 text-muted-foreground whitespace-nowrap">บาท/ปี</Label>
-                      <Input
-                        type="number" min={0}
-                        className="h-8 text-sm"
-                        value={value || ""}
-                        placeholder="0"
+                      <Input type="number" min={0} className="h-8 text-sm" value={value || ""} placeholder="0"
                         onChange={e => upd(fund.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof fund.key])}
                       />
                     </div>
                     {pct !== null && value > 0 && (
                       <div className="space-y-1">
                         <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className={cn("h-full rounded-full transition-all", pct >= 100 ? "bg-emerald-500" : "bg-violet-400")}
-                            style={{ width: `${Math.min(100, pct)}%` }}
-                          />
+                          <div className={cn("h-full rounded-full transition-all", pct >= 100 ? "bg-emerald-500" : "bg-violet-400")}
+                            style={{ width: `${Math.min(100, pct)}%` }} />
                         </div>
-                        {room !== null && room > 0 && (
-                          <p className="text-xs text-muted-foreground">{fund.hint} · เหลือ {thb(room)}</p>
-                        )}
+                        {room !== null && room > 0 && <p className="text-xs text-muted-foreground">{fund.hint} · เหลือ {thb(room)}</p>}
                         {room === 0 && <p className="text-xs text-emerald-600">✓ ใช้สิทธิ์เต็มแล้ว!</p>}
                       </div>
                     )}
@@ -534,80 +537,143 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
         </div>
       )}
 
-      {/* ── Personal Portfolio Zone ── */}
+      {/* ── PERSONAL PORTFOLIO ZONE ── */}
       {view === "personal" && (
-        <div className="space-y-3">
-          {persTotal > 0 && (
+        <div className="space-y-4">
+          {assetsLoading && (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          )}
+
+          {/* Allocation bar */}
+          {!assetsLoading && persTotal > 0 && (
             <div className="rounded-xl border p-4 space-y-2">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">สัดส่วนพอร์ต</p>
-              <div className="h-4 rounded-full overflow-hidden flex gap-0.5">
-                {personal.filter(a => a.value > 0).map(a => (
-                  <div
-                    key={a.key}
-                    title={`${a.label}: ${((a.value / persTotal) * 100).toFixed(1)}%`}
-                    className={cn("h-full transition-all", a.bg.replace("50", "300").replace("dark:bg-", "").split(" ")[0])}
-                    style={{ width: `${(a.value / persTotal) * 100}%`, backgroundColor: undefined }}
-                  />
-                ))}
+              <div className="h-3 rounded-full overflow-hidden flex gap-px bg-muted">
+                {(["thai", "international", "other"] as const).map(g => {
+                  const groupTotal = assets.filter(a => a.group === g).reduce((s, a) => s + a.currentValue, 0);
+                  const pct = (groupTotal / persTotal) * 100;
+                  return pct > 0 ? (
+                    <div key={g} title={`${GROUP_CONFIG[g].label}: ${pct.toFixed(0)}%`}
+                      className={cn("h-full transition-all",
+                        g === "thai" ? "bg-red-400" : g === "international" ? "bg-blue-400" : "bg-slate-400"
+                      )}
+                      style={{ width: `${pct}%` }} />
+                  ) : null;
+                })}
               </div>
-              <div className="flex flex-wrap gap-2">
-                {personal.filter(a => a.value > 0).map(a => (
-                  <span key={a.key} className="text-xs flex items-center gap-1">
-                    <span>{a.emoji}</span>
-                    <span className="text-muted-foreground">{a.label}</span>
-                    <span className="font-semibold">{((a.value / persTotal) * 100).toFixed(0)}%</span>
-                  </span>
-                ))}
+              <div className="flex flex-wrap gap-3">
+                {(["thai", "international", "other"] as const).map(g => {
+                  const groupTotal = assets.filter(a => a.group === g).reduce((s, a) => s + a.currentValue, 0);
+                  return groupTotal > 0 ? (
+                    <span key={g} className="text-xs flex items-center gap-1">
+                      <span className={cn("h-2 w-2 rounded-full inline-block",
+                        g === "thai" ? "bg-red-400" : g === "international" ? "bg-blue-400" : "bg-slate-400"
+                      )} />
+                      <span className="text-muted-foreground">{GROUP_CONFIG[g].label}</span>
+                      <span className="font-semibold">{((groupTotal / persTotal) * 100).toFixed(0)}%</span>
+                    </span>
+                  ) : null;
+                })}
               </div>
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {PERSONAL_ASSETS.map(asset => {
-              const value = p[asset.key] as number;
-              const alloc = persTotal > 0 ? (value / persTotal) * 100 : 0;
-              return (
-                <div key={asset.key} className={cn(
-                  "rounded-xl border p-4 transition-all space-y-3",
-                  value > 0 ? `${asset.bg} ${asset.border}` : "border-dashed border-muted-foreground/30 hover:border-muted-foreground/50"
-                )}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">{asset.emoji}</span>
-                      <div>
-                        <p className="font-semibold text-sm">{asset.label}</p>
-                        <p className="text-xs text-muted-foreground">{asset.sublabel}</p>
-                      </div>
-                    </div>
-                    {value > 0 && (
-                      <div className="text-right">
-                        <p className={cn("text-xs font-bold", asset.trendUp ? "text-emerald-600" : "text-red-500")}>{asset.trend}</p>
-                        <p className="text-xs text-muted-foreground">{alloc.toFixed(0)}% ของพอร์ต</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">มูลค่าปัจจุบัน (บาท)</Label>
-                    <Input
-                      type="number" min={0}
-                      className="h-8 text-sm bg-background/70"
-                      value={value || ""}
-                      placeholder="0"
-                      onChange={e => upd(asset.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof asset.key])}
-                    />
-                  </div>
-                  {value === 0 && <p className="text-xs text-muted-foreground">{asset.hint}</p>}
-                </div>
-              );
-            })}
-          </div>
+          {/* Asset groups */}
+          {!assetsLoading && (["thai", "international", "other"] as const).map(g => {
+            const cfg        = GROUP_CONFIG[g];
+            const groupAssets = assets.filter(a => a.group === g);
+            const groupTotal  = groupAssets.reduce((s, a) => s + a.currentValue, 0);
+            const isAdding    = addingGroup === g;
 
-          <Card className="bg-muted/30">
-            <CardContent className="pt-4 pb-4 text-sm space-y-1">
-              <p className="font-semibold">💡 อัปเดตมูลค่าพอร์ตทุกเดือน</p>
-              <p className="text-muted-foreground text-xs">MyFinance ใช้ข้อมูลนี้คำนวณแผนเกษียณและฉายภาพความมั่งคั่งระยะยาว ยิ่งข้อมูลแม่นยำ แผนยิ่งแม่นยำ</p>
-            </CardContent>
-          </Card>
+            return (
+              <div key={g} className={cn("rounded-xl border-2 p-4 space-y-3", cfg.borderColor, cfg.bg)}>
+                {/* Group header */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-sm">{cfg.label}</p>
+                    {groupTotal > 0 && <p className="text-xs text-muted-foreground">{thb(groupTotal)} · {groupAssets.filter(a => a.currentValue > 0).length} รายการ</p>}
+                  </div>
+                  <button
+                    onClick={() => { setAddingGroup(isAdding ? null : g); setAddForm({ name: "", emoji: "💰", currentValue: "" }); }}
+                    className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg bg-background/80 border hover:bg-muted transition-colors"
+                  >
+                    {isAdding ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                    {isAdding ? "ยกเลิก" : "เพิ่มสินทรัพย์"}
+                  </button>
+                </div>
+
+                {/* Add form */}
+                {isAdding && (
+                  <div className="rounded-xl border bg-background/90 p-3 space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground">เพิ่มสินทรัพย์ในกลุ่ม {cfg.label}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PERSONAL_EMOJIS.map(e => (
+                        <button key={e}
+                          onClick={() => setAddForm(f => ({ ...f, emoji: e }))}
+                          className={cn("text-lg rounded-lg p-1 transition-all hover:scale-110", addForm.emoji === e ? "ring-2 ring-primary bg-primary/10" : "hover:bg-muted")}
+                        >{e}</button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input placeholder="ชื่อสินทรัพย์" value={addForm.name}
+                        onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} className="flex-1 h-8 text-sm" />
+                      <Input type="number" min={0} placeholder="มูลค่า (บาท)" value={addForm.currentValue}
+                        onChange={e => setAddForm(f => ({ ...f, currentValue: e.target.value }))} className="w-36 h-8 text-sm" />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={addSaving || !addForm.name.trim()}
+                        onClick={() => handleAdd(g)}>
+                        {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}บันทึก
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setAddingGroup(null)}>ยกเลิก</Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Asset cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {groupAssets.map(asset => (
+                    <div key={asset.id} className={cn(
+                      "flex items-center gap-2 rounded-xl border bg-background/80 px-3 py-2.5 transition-all",
+                      asset.currentValue > 0 ? "border-border" : "border-dashed border-muted-foreground/30"
+                    )}>
+                      <span className="text-xl shrink-0">{asset.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{asset.name}</p>
+                        <Input
+                          type="number" min={0}
+                          className="h-7 text-sm mt-1 bg-transparent border-0 px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+                          value={asset.currentValue || ""}
+                          placeholder="มูลค่า (บาท)"
+                          onChange={e => handleValueChange(asset.id, parseFloat(e.target.value) || 0)}
+                        />
+                      </div>
+                      <button
+                        onClick={() => handleRemove(asset.id, asset.isBuiltIn)}
+                        className="text-muted-foreground/50 hover:text-destructive transition-colors p-1 shrink-0"
+                        title={asset.isBuiltIn ? "ตั้งค่าเป็น 0" : "ลบออก"}
+                      >
+                        {asset.isBuiltIn ? <X className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {groupAssets.length === 0 && !isAdding && (
+                  <p className="text-xs text-muted-foreground text-center py-2">ยังไม่มีสินทรัพย์ — กด "เพิ่มสินทรัพย์" เพื่อเริ่มต้น</p>
+                )}
+              </div>
+            );
+          })}
+
+          {!assetsLoading && (
+            <Card className="bg-muted/30">
+              <CardContent className="pt-4 pb-4 text-sm space-y-1">
+                <p className="font-semibold">💡 อัปเดตมูลค่าพอร์ตทุกเดือน</p>
+                <p className="text-muted-foreground text-xs">ระบบใช้ข้อมูลนี้คำนวณแผนเกษียณและฉายภาพความมั่งคั่งระยะยาว</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>
@@ -663,109 +729,6 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
   );
 }
 
-// ─── Tab: Retirement ─────────────────────────────────────────────────────────
-
-function RetirementTab({ profile }: { profile: FinancialProfile }) {
-  const [form, setForm] = useState({ currentAge: 30, retirementAge: 60, monthlyRetirementNeeds: 50000 });
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved]   = useState(false);
-
-  useEffect(() => {
-    fetch("/api/user/financial-plan").then(r => r.json()).then(d => {
-      if (d.data) setForm(prev => ({
-        ...prev,
-        currentAge: d.data.currentAge ?? prev.currentAge,
-        retirementAge: d.data.retirementAge ?? prev.retirementAge,
-        monthlyRetirementNeeds: Number(d.data.monthlyRetirementNeeds || prev.monthlyRetirementNeeds),
-      }));
-    }).catch(() => {});
-  }, []);
-
-  const monthlyIncome = Math.round((profile.annualSalary + profile.bonus + profile.otherIncome) / 12);
-  const monthlyFree   = Math.max(0, monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment);
-  const yearsToRetire = Math.max(0, form.retirementAge - form.currentAge);
-  const corpusNeeded  = form.monthlyRetirementNeeds > 0
-    ? Math.round((form.monthlyRetirementNeeds * 12) / 0.04)
-    : 0;
-
-  const save = async () => {
-    setSaving(true);
-    await fetch("/api/user/financial-plan", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        currentAge: form.currentAge,
-        retirementAge: form.retirementAge,
-        monthlyRetirementNeeds: form.monthlyRetirementNeeds,
-        monthlyInvestable: monthlyFree,
-      }),
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-200 dark:bg-indigo-950/20 dark:border-indigo-800">
-        <p className="text-sm font-medium text-indigo-800 dark:text-indigo-300">ข้อมูลนี้ใช้สร้างแผนการเงินส่วนตัวของคุณ</p>
-        <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
-          ระบบจะคำนวณว่าคุณต้องออมเท่าไหร่ต่อเดือน และคุณอยู่ในเส้นทางที่ถูกต้องหรือไม่
-        </p>
-      </div>
-
-      <SectionCard title="เป้าหมายเกษียณ" icon={Calendar} iconColor="text-indigo-500">
-        <NumField label="อายุปัจจุบัน" value={form.currentAge}
-          onChange={v => setForm(p => ({ ...p, currentAge: v }))} suffix="ปี" />
-        <NumField label="อายุเกษียณเป้าหมาย" value={form.retirementAge}
-          onChange={v => setForm(p => ({ ...p, retirementAge: v }))} suffix="ปี"
-          hint={yearsToRetire > 0 ? `อีก ${yearsToRetire} ปี` : ""} />
-        <NumField label="ค่าใช้จ่ายหลังเกษียณ/เดือน" value={form.monthlyRetirementNeeds}
-          onChange={v => setForm(p => ({ ...p, monthlyRetirementNeeds: v }))}
-          hint="ณ มูลค่าเงินปัจจุบัน (ก่อนเงินเฟ้อ)" />
-      </SectionCard>
-
-      {/* Derived summary */}
-      <Card className="bg-muted/40 border-dashed">
-        <CardContent className="pt-4 pb-4 space-y-3">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">สรุปคำนวณอัตโนมัติ</p>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground">เงินลงทุนได้/เดือน (จากรายได้)</p>
-              <p className={cn("font-bold text-base", monthlyFree > 0 ? "text-emerald-600" : "text-muted-foreground")}>
-                {monthlyIncome > 0 ? thb(monthlyFree) : "กรอกรายได้ก่อน"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">เงินที่ต้องมีตอนเกษียณ (4% rule)</p>
-              <p className="font-bold text-base text-indigo-600">
-                {corpusNeeded > 0 ? `฿${(corpusNeeded / 1_000_000).toFixed(1)}M` : "—"}
-              </p>
-            </div>
-          </div>
-          {monthlyIncome === 0 && (
-            <p className="text-xs text-amber-600 flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" />
-              กรอกรายได้ในแท็บ "รายได้ & ครอบครัว" เพื่อดูยอดลงทุนที่คำนวณ
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button onClick={save} disabled={saving}>
-          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-          บันทึกข้อมูลเกษียณ
-        </Button>
-        {saved && <span className="flex items-center gap-1 text-sm text-emerald-600"><CheckCircle2 className="h-4 w-4" />บันทึกแล้ว</span>}
-        <Link href="/financial-plan" className="ml-auto text-sm text-primary hover:underline flex items-center gap-1">
-          <MapPin className="h-3.5 w-3.5" />ดูแผนการเงิน →
-        </Link>
-      </div>
-    </div>
-  );
-}
-
 export default function MyDataPage() {
   const [tab, setTab] = useState<TabKey>("income");
 
@@ -773,7 +736,7 @@ export default function MyDataPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get("tab") as TabKey;
-    if (t && ["income", "insurance", "investment", "debts", "retirement"].includes(t)) {
+    if (t && ["income", "insurance", "investment", "debts"].includes(t)) {
       setTab(t);
     }
   }, []);
@@ -890,7 +853,6 @@ export default function MyDataPage() {
       {tab === "insurance"   && <InsuranceTab   p={profile} upd={upd} />}
       {tab === "investment"  && <InvestmentTab  p={profile} upd={upd} />}
       {tab === "debts"       && <DebtsTab       p={profile} upd={upd} />}
-      {tab === "retirement"  && <RetirementTab  profile={profile} />}
 
       {/* Bottom save */}
       <div className="flex items-center gap-3 pt-2 border-t">

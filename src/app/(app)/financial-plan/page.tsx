@@ -234,7 +234,7 @@ function buildSteps(p: ProfileData, plan: PlanData | null, risk: RiskData | null
       benefit: onTrack
         ? "แผนเกษียณอยู่ในเส้นทาง"
         : addNeeded > 0 ? `เพิ่มออม ${thb(addNeeded)}/เดือน → เกษียณได้ตามแผน` : "ปรับกลยุทธ์เพื่อถึงเป้าหมาย",
-      link: { href: "/my-data?tab=retirement", label: "แก้ไขข้อมูลเกษียณ" },
+      link: { href: "/goals", label: "แก้ไขข้อมูลเกษียณ" },
     });
   } else {
     steps.push({
@@ -249,7 +249,7 @@ function buildSteps(p: ProfileData, plan: PlanData | null, risk: RiskData | null
         "ระบบจะคำนวณว่าต้องออมเดือนละเท่าไหร่และคุณอยู่ในเส้นทางหรือไม่",
       ],
       benefit: "รู้ตัวเลขที่ชัดเจน ออมได้ถูกต้อง ไม่มากไม่น้อยเกินไป",
-      link: { href: "/my-data?tab=retirement", label: "กำหนดข้อมูลเกษียณ →" },
+      link: { href: "/goals", label: "กำหนดข้อมูลเกษียณ →" },
     });
   }
 
@@ -280,7 +280,7 @@ function computeMissing(profile: ProfileData | null, plan: PlanData | null, risk
     items.push({ label: "ระดับความเสี่ยง", detail: "ยังไม่ได้ประเมิน — ใช้คำนวณพอร์ตลงทุนที่เหมาะสม", href: "/tools/risk", priority: "important" });
   }
   if (!plan?.currentAge || !plan?.retirementAge || !plan?.monthlyRetirementNeeds) {
-    items.push({ label: "ข้อมูลเกษียณ", detail: "อายุ, อายุเกษียณ, ค่าใช้จ่ายหลังเกษียณ — ใช้คำนวณการฉายภาพเกษียณ", href: "/my-data?tab=retirement", priority: "important" });
+    items.push({ label: "ข้อมูลเกษียณ", detail: "อายุ, อายุเกษียณ, ค่าใช้จ่ายหลังเกษียณ — ใช้คำนวณการฉายภาพเกษียณ", href: "/goals", priority: "important" });
   }
   if (profile && profile.lifeInsurancePremium === 0 && profile.healthInsurancePremium === 0) {
     items.push({ label: "ข้อมูลประกัน", detail: "ยังไม่ได้กรอกเบี้ยประกันชีวิต/สุขภาพ — ใช้คำนวณลดหย่อนภาษี", href: "/my-data?tab=insurance", priority: "optional" });

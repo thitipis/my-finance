@@ -1,16 +1,162 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Target, Plus, TrendingUp, Trash2, Loader2, CheckCircle2, Clock, AlertCircle, Pencil, X } from "lucide-react";
+import { Target, Plus, TrendingUp, Trash2, Loader2, CheckCircle2, Clock, AlertCircle, Pencil, X, Sunrise, Save, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 const thb = (n: number) =>
   n >= 1_000_000 ? `\u0e3f${(n / 1_000_000).toFixed(1)}M`
   : n >= 1_000   ? `\u0e3f${(n / 1_000).toFixed(0)}K`
   : `\u0e3f${n.toLocaleString("th-TH")}`;
+
+// ─── Retirement Plan Widget ───────────────────────────────────────────────────
+
+interface RetirementPlanState {
+  currentAge: number;
+  retirementAge: number;
+  monthlyRetirementNeeds: number;
+}
+
+function RetirementWidget() {
+  const [plan, setPlan]       = useState<RetirementPlanState>({ currentAge: 30, retirementAge: 60, monthlyRetirementNeeds: 50000 });
+  const [loaded, setLoaded]   = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm]       = useState<RetirementPlanState>({ currentAge: 30, retirementAge: 60, monthlyRetirementNeeds: 50000 });
+  const [hasData, setHasData] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [saved, setSaved]     = useState(false);
+
+  useEffect(() => {
+    fetch("/api/user/financial-plan").then(r => r.json()).then(d => {
+      if (d.data?.currentAge) {
+        const p: RetirementPlanState = {
+          currentAge:             d.data.currentAge            ?? 30,
+          retirementAge:          d.data.retirementAge         ?? 60,
+          monthlyRetirementNeeds: Number(d.data.monthlyRetirementNeeds ?? 0),
+        };
+        setPlan(p);
+        setForm(p);
+        setHasData(true);
+      } else {
+        setEditing(true);
+      }
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    await fetch("/api/user/financial-plan", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currentAge:             form.currentAge,
+        retirementAge:          form.retirementAge,
+        monthlyRetirementNeeds: form.monthlyRetirementNeeds,
+      }),
+    });
+    setSaving(false);
+    setPlan(form);
+    setHasData(true);
+    setEditing(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const yearsLeft    = Math.max(0, plan.retirementAge - plan.currentAge);
+  const corpusNeeded = plan.monthlyRetirementNeeds > 0
+    ? Math.round((plan.monthlyRetirementNeeds * 12) / 0.04) : 0;
+
+  if (!loaded) return (
+    <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+  );
+
+  return (
+    <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/20 dark:border-indigo-800">
+      <CardHeader className="pb-3 pt-4">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sunrise className="h-5 w-5 text-indigo-500" />
+            แผนเกษียณของฉัน
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {saved && <span className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" />บันทึกแล้ว</span>}
+            {hasData && (
+              <button
+                onClick={() => { setEditing(e => !e); setForm(plan); }}
+                className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-indigo-100 transition-colors"
+              >
+                {editing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                {editing ? "ยกเลิก" : "แก้ไข"}
+              </button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pb-4 space-y-4">
+        {editing ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">อายุปัจจุบัน</Label>
+                <Input type="number" min={18} max={80} value={form.currentAge}
+                  onChange={e => setForm(p => ({ ...p, currentAge: Number(e.target.value) || 0 }))}
+                  className="h-8 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">อายุเกษียณเป้าหมาย</Label>
+                <Input type="number" min={40} max={80} value={form.retirementAge}
+                  onChange={e => setForm(p => ({ ...p, retirementAge: Number(e.target.value) || 0 }))}
+                  className="h-8 text-sm" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">ค่าใช้จ่ายหลังเกษียณ/เดือน (บาท ณ มูลค่าปัจจุบัน)</Label>
+              <Input type="number" min={0} value={form.monthlyRetirementNeeds}
+                onChange={e => setForm(p => ({ ...p, monthlyRetirementNeeds: Number(e.target.value) || 0 }))}
+                className="h-8 text-sm" placeholder="50,000" />
+            </div>
+            <Button size="sm" onClick={save} disabled={saving}>
+              {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />กำลังบันทึก…</> : <><Save className="h-3.5 w-3.5 mr-1" />บันทึก</>}
+            </Button>
+          </div>
+        ) : hasData ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {([
+              { label: "อายุปัจจุบัน",           value: `${plan.currentAge} ปี` },
+              { label: "เกษียณอายุ",              value: `${plan.retirementAge} ปี`, sub: `อีก ${yearsLeft} ปี` },
+              { label: "ใช้จ่าย/เดือนหลังเกษียณ", value: thb(plan.monthlyRetirementNeeds) },
+              { label: "Corpus ที่ต้องการ",       value: corpusNeeded > 0 ? `${(corpusNeeded / 1_000_000).toFixed(1)}M` : "—", sub: "4% rule", highlight: true },
+            ] as { label: string; value: string; sub?: string; highlight?: boolean }[]).map(({ label, value, sub, highlight }) => (
+              <div key={label} className="bg-white/60 dark:bg-black/20 rounded-xl p-3">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className={cn("font-bold text-base mt-0.5", highlight ? "text-indigo-600" : "")}>{value}</p>
+                {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4 space-y-2">
+            <p className="text-sm text-muted-foreground">ยังไม่ได้กำหนดแผนเกษียณ</p>
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" />กำหนดแผนเกษียณ
+            </Button>
+          </div>
+        )}
+        <div className="flex items-center justify-between pt-1 border-t border-indigo-200/50">
+          <p className="text-xs text-muted-foreground">ดูรายละเอียดและฉายภาพใน Financial Plan</p>
+          <Link href="/financial-plan" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
+            <MapPin className="h-3 w-3" />ดูแผน →
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 type Projection = { projectedCompletionDate: string | null; onTrack: boolean; progressPercent: number; monthsRemaining: number | null };
 type Goal = { id: string; name: string; goalType: string; targetAmount: string; currentAmount: string; monthlyContribution: string; annualReturnRate: string; projection: Projection };
@@ -251,12 +397,15 @@ export default function GoalsPage() {
             <Target className="h-6 w-6 text-primary" />
             เป้าหมายการเงิน
           </h1>
-          <p className="text-muted-foreground text-sm">วางแผนและติดตามเป้าหมายทางการเงินของคุณ</p>
+          <p className="text-muted-foreground text-sm">แผนเกษียณ + เป้าหมายทางการเงินทั้งหมด</p>
         </div>
         <Button onClick={() => setShowForm(v => !v)}>
           <Plus className="h-4 w-4 mr-1" />เพิ่มเป้าหมาย
         </Button>
       </div>
+
+      {/* ── Retirement Plan (pinned) ── */}
+      <RetirementWidget />
 
       {goals.length > 0 && !loading && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
