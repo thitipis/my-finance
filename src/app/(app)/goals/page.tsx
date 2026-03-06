@@ -1,498 +1,607 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Target, Plus, TrendingUp, Trash2, Loader2, CheckCircle2, Clock, AlertCircle, Pencil, X, Sunrise, Save, MapPin } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  Target, Plus, Trash2, Loader2, CheckCircle2, Clock, AlertCircle,
+  Pencil, X, ChevronRight, Zap, TrendingUp, Wallet, Shield,
+  GraduationCap, Star, Home, Flame,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
 
 const thb = (n: number) =>
-  n >= 1_000_000 ? `\u0e3f${(n / 1_000_000).toFixed(1)}M`
-  : n >= 1_000   ? `\u0e3f${(n / 1_000).toFixed(0)}K`
-  : `\u0e3f${n.toLocaleString("th-TH")}`;
+  n >= 1_000_000 ? `฿${(n / 1_000_000).toFixed(2)}M`
+  : n >= 1_000   ? `฿${(n / 1_000).toFixed(0)}K`
+  : `฿${Math.round(n).toLocaleString("th-TH")}`;
 
-// ─── Retirement Plan Widget ───────────────────────────────────────────────────
-
-interface RetirementPlanState {
-  currentAge: number;
-  retirementAge: number;
-  monthlyRetirementNeeds: number;
+// FV formula — months to reach target
+function calcMonths(target: number, current: number, monthly: number, rateAnnual: number): number | null {
+  if (current >= target) return 0;
+  if (monthly <= 0 && rateAnnual <= 0) return null;
+  const r = rateAnnual / 100 / 12;
+  if (r <= 0) {
+    if (monthly <= 0) return null;
+    return Math.ceil((target - current) / monthly);
+  }
+  let lo = 0, hi = 12 * 80;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const fv = current * Math.pow(1 + r, mid) + monthly * ((Math.pow(1 + r, mid) - 1) / r);
+    if (fv >= target) hi = mid; else lo = mid + 1;
+  }
+  return lo >= 12 * 80 ? null : lo;
 }
 
-function RetirementWidget() {
-  const [plan, setPlan]       = useState<RetirementPlanState>({ currentAge: 30, retirementAge: 60, monthlyRetirementNeeds: 50000 });
-  const [loaded, setLoaded]   = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [form, setForm]       = useState<RetirementPlanState>({ currentAge: 30, retirementAge: 60, monthlyRetirementNeeds: 50000 });
-  const [hasData, setHasData] = useState(false);
-  const [saving, setSaving]   = useState(false);
-  const [saved, setSaved]     = useState(false);
-
-  useEffect(() => {
-    fetch("/api/user/financial-plan").then(r => r.json()).then(d => {
-      if (d.data?.currentAge) {
-        const p: RetirementPlanState = {
-          currentAge:             d.data.currentAge            ?? 30,
-          retirementAge:          d.data.retirementAge         ?? 60,
-          monthlyRetirementNeeds: Number(d.data.monthlyRetirementNeeds ?? 0),
-        };
-        setPlan(p);
-        setForm(p);
-        setHasData(true);
-      } else {
-        setEditing(true);
-      }
-      setLoaded(true);
-    }).catch(() => setLoaded(true));
-  }, []);
-
-  const save = async () => {
-    setSaving(true);
-    await fetch("/api/user/financial-plan", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        currentAge:             form.currentAge,
-        retirementAge:          form.retirementAge,
-        monthlyRetirementNeeds: form.monthlyRetirementNeeds,
-      }),
-    });
-    setSaving(false);
-    setPlan(form);
-    setHasData(true);
-    setEditing(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
-  };
-
-  const yearsLeft    = Math.max(0, plan.retirementAge - plan.currentAge);
-  const corpusNeeded = plan.monthlyRetirementNeeds > 0
-    ? Math.round((plan.monthlyRetirementNeeds * 12) / 0.04) : 0;
-
-  if (!loaded) return (
-    <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-  );
-
-  return (
-    <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/20 dark:border-indigo-800">
-      <CardHeader className="pb-3 pt-4">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sunrise className="h-5 w-5 text-indigo-500" />
-            แผนเกษียณของฉัน
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {saved && <span className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" />บันทึกแล้ว</span>}
-            {hasData && (
-              <button
-                onClick={() => { setEditing(e => !e); setForm(plan); }}
-                className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-indigo-100 transition-colors"
-              >
-                {editing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-                {editing ? "ยกเลิก" : "แก้ไข"}
-              </button>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pb-4 space-y-4">
-        {editing ? (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">อายุปัจจุบัน</Label>
-                <Input type="number" min={18} max={80} value={form.currentAge}
-                  onChange={e => setForm(p => ({ ...p, currentAge: Number(e.target.value) || 0 }))}
-                  className="h-8 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">อายุเกษียณเป้าหมาย</Label>
-                <Input type="number" min={40} max={80} value={form.retirementAge}
-                  onChange={e => setForm(p => ({ ...p, retirementAge: Number(e.target.value) || 0 }))}
-                  className="h-8 text-sm" />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">ค่าใช้จ่ายหลังเกษียณ/เดือน (บาท ณ มูลค่าปัจจุบัน)</Label>
-              <Input type="number" min={0} value={form.monthlyRetirementNeeds}
-                onChange={e => setForm(p => ({ ...p, monthlyRetirementNeeds: Number(e.target.value) || 0 }))}
-                className="h-8 text-sm" placeholder="50,000" />
-            </div>
-            <Button size="sm" onClick={save} disabled={saving}>
-              {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />กำลังบันทึก…</> : <><Save className="h-3.5 w-3.5 mr-1" />บันทึก</>}
-            </Button>
-          </div>
-        ) : hasData ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {([
-              { label: "อายุปัจจุบัน",           value: `${plan.currentAge} ปี` },
-              { label: "เกษียณอายุ",              value: `${plan.retirementAge} ปี`, sub: `อีก ${yearsLeft} ปี` },
-              { label: "ใช้จ่าย/เดือนหลังเกษียณ", value: thb(plan.monthlyRetirementNeeds) },
-              { label: "Corpus ที่ต้องการ",       value: corpusNeeded > 0 ? `${(corpusNeeded / 1_000_000).toFixed(1)}M` : "—", sub: "4% rule", highlight: true },
-            ] as { label: string; value: string; sub?: string; highlight?: boolean }[]).map(({ label, value, sub, highlight }) => (
-              <div key={label} className="bg-white/60 dark:bg-black/20 rounded-xl p-3">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <p className={cn("font-bold text-base mt-0.5", highlight ? "text-indigo-600" : "")}>{value}</p>
-                {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-4 space-y-2">
-            <p className="text-sm text-muted-foreground">ยังไม่ได้กำหนดแผนเกษียณ</p>
-            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1" />กำหนดแผนเกษียณ
-            </Button>
-          </div>
-        )}
-        <div className="flex items-center justify-between pt-1 border-t border-indigo-200/50">
-          <p className="text-xs text-muted-foreground">ดูรายละเอียดและฉายภาพใน Financial Plan</p>
-          <Link href="/financial-plan" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
-            <MapPin className="h-3 w-3" />ดูแผน →
-          </Link>
-        </div>
-      </CardContent>
-    </Card>
-  );
+function fmtDate(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d.toLocaleDateString("th-TH", { year: "numeric", month: "short" });
 }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Projection = { projectedCompletionDate: string | null; onTrack: boolean; progressPercent: number; monthsRemaining: number | null };
 type Goal = { id: string; name: string; goalType: string; targetAmount: string; currentAmount: string; monthlyContribution: string; annualReturnRate: string; projection: Projection };
-const EMPTY_FORM = { name: "", goalType: "retirement", targetAmount: "", currentAmount: "0", monthlyContribution: "", annualReturnRate: "7" };
+type Profile = { annualSalary: number; monthlyExpenses: number; emergencyFundAmount: number; totalDebt: number; monthlyDebtPayment: number };
 
-const GOAL_TYPES: { value: string; label: string; color: string; icon: string }[] = [
-  { value: "retirement",     label: "เกษียณอายุ",    color: "#6366f1", icon: "🏖️" },
-  { value: "emergency_fund", label: "กองทุนฉุกเฉิน", color: "#f59e0b", icon: "🛡️" },
-  { value: "investment",     label: "การลงทุน",      color: "#10b981", icon: "📈" },
-  { value: "home_car",       label: "บ้าน / รถ",     color: "#3b82f6", icon: "🏠" },
-  { value: "education",      label: "ค่าการศึกษา",  color: "#8b5cf6", icon: "🎓" },
-  { value: "custom",         label: "อื่น ๆ",        color: "#64748b", icon: "⭐" },
+// ─── Goal type config ─────────────────────────────────────────────────────────
+
+const GOAL_TYPES = [
+  { value: "retirement",     label: "เกษียณอายุ",    Icon: TrendingUp, color: "#6366f1", bg: "from-indigo-500/10 to-violet-500/5",  border: "border-indigo-200" },
+  { value: "emergency_fund", label: "กองทุนฉุกเฉิน", Icon: Shield,     color: "#f59e0b", bg: "from-amber-500/10 to-amber-500/5",   border: "border-amber-200" },
+  { value: "home_car",       label: "บ้าน / รถ",     Icon: Home,       color: "#3b82f6", bg: "from-blue-500/10 to-blue-500/5",    border: "border-blue-200" },
+  { value: "education",      label: "การศึกษา",      Icon: GraduationCap, color: "#8b5cf6", bg: "from-purple-500/10 to-purple-500/5", border: "border-purple-200" },
+  { value: "investment",     label: "การลงทุน",      Icon: Zap,        color: "#10b981", bg: "from-emerald-500/10 to-emerald-500/5", border: "border-emerald-200" },
+  { value: "custom",         label: "อื่น ๆ",        Icon: Star,       color: "#64748b", bg: "from-slate-500/10 to-slate-500/5",  border: "border-slate-200" },
 ];
+function getType(v: string) { return GOAL_TYPES.find(t => t.value === v) ?? GOAL_TYPES[GOAL_TYPES.length - 1]; }
 
-function ProgressRing({ pct, color, size = 64 }: { pct: number; color: string; size?: number }) {
-  const r = (size - 8) / 2;
-  const circ = 2 * Math.PI * r;
-  const dash = circ * Math.min(pct, 100) / 100;
+// ─── Ring SVG ─────────────────────────────────────────────────────────────────
+
+function Ring({ pct, color, size = 72 }: { pct: number; color: string; size?: number }) {
+  const r = (size - 10) / 2;
+  const c = 2 * Math.PI * r;
+  const dash = c * Math.min(pct, 100) / 100;
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={6}
-        stroke="currentColor" className="text-muted/20" fill="none" />
-      <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={6}
-        stroke={pct >= 100 ? "#10b981" : color} fill="none"
-        strokeDasharray={`${dash.toFixed(1)} ${circ.toFixed(1)}`}
-        strokeLinecap="round" />
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90 shrink-0">
+      <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={7} stroke="currentColor" className="text-muted/20" fill="none" />
+      <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={7} stroke={pct >= 100 ? "#10b981" : color} fill="none"
+        strokeDasharray={`${dash.toFixed(1)} ${c.toFixed(1)}`} strokeLinecap="round" />
     </svg>
   );
 }
 
-function GoalCard({ goal, onDelete, onUpdate }: { goal: Goal; onDelete: (id: string) => void; onUpdate: (g: Goal) => void }) {
-  const pct  = goal.projection.progressPercent;
-  const type = GOAL_TYPES.find(t => t.value === goal.goalType) ?? GOAL_TYPES[GOAL_TYPES.length - 1];
-  const [del, setDel] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState({
-    name: goal.name,
-    targetAmount: goal.targetAmount,
-    currentAmount: goal.currentAmount,
-    monthlyContribution: goal.monthlyContribution,
-    annualReturnRate: goal.annualReturnRate,
-  });
-  const [saving, setSaving] = useState(false);
+// ─── Live Calculator panel (shown inside Add or Edit form) ────────────────────
 
-  const handleDelete = async () => {
-    if (!confirm("ลบเป้าหมายนี้?")) return;
-    setDel(true);
-    await fetch(`/api/goals/${goal.id}`, { method: "DELETE" });
-    onDelete(goal.id);
+function LiveCalc({ target, current, monthly, rate }: { target: number; current: number; monthly: number; rate: number }) {
+  const months = calcMonths(target, current, monthly, rate);
+  const left = Math.max(0, target - current);
+  const pct  = target > 0 ? Math.min(100, (current / target) * 100) : 0;
+
+  const noMonthly = monthly <= 0 && rate <= 0;
+  const done = current >= target;
+
+  return (
+    <div className="rounded-xl bg-muted/40 border p-4 space-y-3">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">ผลการคำนวณแบบ Real-time</p>
+
+      {/* Progress bar */}
+      <div className="space-y-1">
+        <div className="flex justify-between text-xs">
+          <span className="text-muted-foreground">ความคืบหน้า</span>
+          <span className="font-semibold">{pct.toFixed(1)}%</span>
+        </div>
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${pct}%`, background: done ? "#10b981" : "#6366f1" }} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="bg-background rounded-lg py-2 px-1">
+          <p className="text-[10px] text-muted-foreground">ขาดอีก</p>
+          <p className="text-sm font-bold mt-0.5">{done ? "✓ ครบแล้ว" : thb(left)}</p>
+        </div>
+        <div className="bg-background rounded-lg py-2 px-1">
+          <p className="text-[10px] text-muted-foreground">ถึงเป้าใน</p>
+          <p className="text-sm font-bold mt-0.5">
+            {done ? "ครบแล้ว" : noMonthly ? "—" : months === null ? ">60 ปี" : `${months} เดือน`}
+          </p>
+        </div>
+        <div className="bg-background rounded-lg py-2 px-1">
+          <p className="text-[10px] text-muted-foreground">วันที่คาด</p>
+          <p className="text-sm font-bold mt-0.5">
+            {done ? "แล้ว" : noMonthly || months === null ? "—" : fmtDate(months)}
+          </p>
+        </div>
+      </div>
+
+      {!done && !noMonthly && months !== null && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1">
+          <Flame className="h-3.5 w-3.5 text-orange-400" />
+          ออม {thb(monthly)}/เดือน ด้วยผลตอบแทน {rate}%/ปี
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Suggestion chip — from profile ──────────────────────────────────────────
+
+function SuggestChip({ label, value, onClick }: { label: string; value: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className="text-[11px] bg-primary/10 text-primary px-2.5 py-1 rounded-full font-medium hover:bg-primary/20 transition-colors flex items-center gap-1">
+      <Zap className="h-3 w-3" />{label}: {value}
+    </button>
+  );
+}
+
+// ─── Add Goal Form ────────────────────────────────────────────────────────────
+
+const EMPTY = { name: "", goalType: "custom", targetAmount: "", currentAmount: "0", monthlyContribution: "", annualReturnRate: "7" };
+
+function AddGoalPanel({ profile, onSaved, onCancel }: { profile: Profile | null; onSaved: (g: Goal) => void; onCancel: () => void }) {
+  const [form, setForm] = useState(EMPTY);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const type  = getType(form.goalType);
+  const tNum  = parseFloat(form.targetAmount) || 0;
+  const cNum  = parseFloat(form.currentAmount) || 0;
+  const mNum  = parseFloat(form.monthlyContribution) || 0;
+  const rNum  = parseFloat(form.annualReturnRate) || 0;
+
+  // Suggestions from profile
+  const monthlyIncome = profile ? Math.round(profile.annualSalary / 12) : 0;
+  const savableGuess  = profile ? Math.max(0, monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment) : 0;
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm(p => ({ ...p, [k]: e.target.value }));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr("");
+    if (!form.name.trim() || tNum <= 0 || mNum < 0) { setErr("กรุณากรอกข้อมูลให้ครบ"); return; }
+    setSaving(true);
+    const res = await fetch("/api/goals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: form.name, goalType: form.goalType, targetAmount: tNum, currentAmount: cNum, monthlyContribution: mNum, annualReturnRate: rNum }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (!res.ok) { setErr(data.error ?? "เกิดข้อผิดพลาด"); return; }
+    onSaved(data.data);
+    setForm(EMPTY);
   };
 
-  const handleEditSave = async () => {
+  return (
+    <div className="rounded-2xl border bg-card shadow-sm overflow-hidden">
+      <div className={`h-1 w-full bg-gradient-to-r`} style={{ background: type.color }} />
+      <div className="p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="font-bold text-base flex items-center gap-2">
+            <type.Icon className="h-4 w-4" style={{ color: type.color }} />
+            เพิ่มเป้าหมายใหม่
+          </p>
+          <button onClick={onCancel}><X className="h-4 w-4 text-muted-foreground" /></button>
+        </div>
+
+        <form onSubmit={submit} className="space-y-4">
+          {/* Type tabs */}
+          <div className="flex flex-wrap gap-2">
+            {GOAL_TYPES.map(t => (
+              <button key={t.value} type="button"
+                onClick={() => setForm(p => ({ ...p, goalType: t.value }))}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-medium transition-all",
+                  form.goalType === t.value ? "text-white border-transparent" : "text-muted-foreground hover:border-foreground/30"
+                )}
+                style={form.goalType === t.value ? { background: t.color, borderColor: t.color } : {}}
+              >
+                <t.Icon className="h-3.5 w-3.5" />{t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Name */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">ชื่อเป้าหมาย</label>
+            <input required value={form.name} onChange={set("name")} placeholder="เช่น กองทุนฉุกเฉิน 6 เดือน"
+              className="w-full h-10 rounded-xl border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Target */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">เป้าหมาย (บาท)</label>
+              <input required type="number" min={1} value={form.targetAmount} onChange={set("targetAmount")}
+                placeholder="1,000,000"
+                className="w-full h-10 rounded-xl border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              {/* Quick target suggestions */}
+              {profile && form.goalType === "emergency_fund" && profile.monthlyExpenses > 0 && (
+                <div className="flex gap-1.5 flex-wrap mt-1">
+                  {[3,6].map(m => (
+                    <SuggestChip key={m} label={`${m} เดือน`} value={thb(profile.monthlyExpenses * m)}
+                      onClick={() => setForm(p => ({ ...p, targetAmount: String(Math.round(profile.monthlyExpenses * m)) }))} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Current */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">มีอยู่แล้ว (บาท)</label>
+              <input type="number" min={0} value={form.currentAmount} onChange={set("currentAmount")}
+                placeholder="0"
+                className="w-full h-10 rounded-xl border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              {profile && profile.emergencyFundAmount > 0 && form.goalType === "emergency_fund" && (
+                <SuggestChip label="กองทุนฉุกเฉินปัจจุบัน" value={thb(profile.emergencyFundAmount)}
+                  onClick={() => setForm(p => ({ ...p, currentAmount: String(profile.emergencyFundAmount) }))} />
+              )}
+            </div>
+
+            {/* Monthly */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">ออม/เดือน (บาท)</label>
+              <input required type="number" min={0} value={form.monthlyContribution} onChange={set("monthlyContribution")}
+                placeholder={savableGuess > 0 ? savableGuess.toString() : "10,000"}
+                className="w-full h-10 rounded-xl border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              {savableGuess > 0 && (
+                <SuggestChip label="เงินออมได้ต่อเดือน" value={thb(savableGuess)}
+                  onClick={() => setForm(p => ({ ...p, monthlyContribution: String(savableGuess) }))} />
+              )}
+            </div>
+
+            {/* Rate */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">ผลตอบแทน (%/ปี)</label>
+              <input type="number" min={0} max={100} step={0.5} value={form.annualReturnRate} onChange={set("annualReturnRate")}
+                className="w-full h-10 rounded-xl border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              <div className="flex gap-1.5 mt-1">
+                {[0, 3, 5, 7].map(r => (
+                  <button key={r} type="button"
+                    onClick={() => setForm(p => ({ ...p, annualReturnRate: String(r) }))}
+                    className={cn("text-[11px] px-2 py-0.5 rounded-full border font-medium transition-colors",
+                      form.annualReturnRate === String(r) ? "bg-primary text-white border-primary" : "hover:bg-muted"
+                    )}>
+                    {r}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Live calc */}
+          {tNum > 0 && <LiveCalc target={tNum} current={cNum} monthly={mNum} rate={rNum} />}
+
+          {err && <p className="text-xs text-destructive">{err}</p>}
+
+          <div className="flex gap-2">
+            <button type="submit" disabled={saving}
+              className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 flex items-center justify-center gap-2 disabled:opacity-60">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              บันทึกเป้าหมาย
+            </button>
+            <button type="button" onClick={onCancel}
+              className="h-10 px-4 rounded-xl border text-sm font-semibold hover:bg-muted">
+              ยกเลิก
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Goal Card ─────────────────────────────────────────────────────────────────
+
+function GoalCard({ goal, onDelete, onUpdate }: { goal: Goal; onDelete: (id: string) => void; onUpdate: (g: Goal) => void }) {
+  const type = getType(goal.goalType);
+  const pct     = goal.projection.progressPercent;
+  const current = Number(goal.currentAmount);
+  const target  = Number(goal.targetAmount);
+  const monthly = Number(goal.monthlyContribution);
+  const rate    = Number(goal.annualReturnRate);
+  const left    = Math.max(0, target - current);
+  const done    = pct >= 100;
+
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ name: goal.name, targetAmount: goal.targetAmount, currentAmount: goal.currentAmount, monthlyContribution: goal.monthlyContribution, annualReturnRate: goal.annualReturnRate });
+  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const eTgt = parseFloat(editForm.targetAmount) || 0;
+  const eCur = parseFloat(editForm.currentAmount) || 0;
+  const eMon = parseFloat(editForm.monthlyContribution) || 0;
+  const eRate = parseFloat(editForm.annualReturnRate) || 0;
+
+  const setE = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setEditForm(p => ({ ...p, [k]: e.target.value }));
+
+  const handleSave = async () => {
     setSaving(true);
     const res = await fetch(`/api/goals/${goal.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: editForm.name,
-        targetAmount: parseFloat(editForm.targetAmount),
-        currentAmount: parseFloat(editForm.currentAmount) || 0,
-        monthlyContribution: parseFloat(editForm.monthlyContribution),
-        annualReturnRate: parseFloat(editForm.annualReturnRate),
-      }),
+      body: JSON.stringify({ name: editForm.name, targetAmount: eTgt, currentAmount: eCur, monthlyContribution: eMon, annualReturnRate: eRate }),
     });
     const data = await res.json();
     setSaving(false);
     if (res.ok && data.data) { onUpdate(data.data); setEditing(false); }
   };
 
-  const current = Number(goal.currentAmount);
-  const target  = Number(goal.targetAmount);
-  const monthly = Number(goal.monthlyContribution);
-  const left    = Math.max(0, target - current);
-
-  if (editing) {
-    return (
-      <Card className="overflow-hidden border-primary/40">
-        <div className="h-1 w-full" style={{ background: type.color }} />
-        <CardContent className="pt-4 pb-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold text-sm">{type.icon} แก้ไขเป้าหมาย</p>
-            <button onClick={() => setEditing(false)} className="text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="col-span-2 space-y-1">
-              <Label className="text-xs">ชื่อเป้าหมาย</Label>
-              <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">เป้าหมาย (บาท)</Label>
-              <Input type="number" value={editForm.targetAmount} onChange={e => setEditForm(p => ({ ...p, targetAmount: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">มีอยู่แล้ว (บาท)</Label>
-              <Input type="number" value={editForm.currentAmount} onChange={e => setEditForm(p => ({ ...p, currentAmount: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">ออม/เดือน (บาท)</Label>
-              <Input type="number" value={editForm.monthlyContribution} onChange={e => setEditForm(p => ({ ...p, monthlyContribution: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">ผลตอบแทน (% / ปี)</Label>
-              <Input type="number" value={editForm.annualReturnRate} onChange={e => setEditForm(p => ({ ...p, annualReturnRate: e.target.value }))} min={0} max={100} step={0.1} />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleEditSave} disabled={saving}>
-              {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-              บันทึก
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>ยกเลิก</Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const handleDelete = async () => {
+    if (!confirm("ลบเป้าหมายนี้?")) return;
+    setDeleting(true);
+    await fetch(`/api/goals/${goal.id}`, { method: "DELETE" });
+    onDelete(goal.id);
+  };
 
   return (
-    <Card className="overflow-hidden">
-      <div className="h-1 w-full" style={{ background: type.color }} />
-      <CardContent className="pt-4 pb-4 space-y-3">
+    <div className={cn("rounded-2xl border overflow-hidden bg-gradient-to-br", type.bg, type.border)}>
+      {/* Color bar */}
+      <div className="h-1" style={{ background: type.color }} />
+
+      <div className="p-4 space-y-3">
+        {/* Header */}
         <div className="flex items-start gap-3">
-          <ProgressRing pct={pct} color={type.color} size={60} />
+          <Ring pct={pct} color={type.color} size={68} />
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="font-semibold text-sm leading-tight">{goal.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{type.icon} {type.label}</p>
+                <p className="font-bold text-sm leading-tight">{goal.name}</p>
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <type.Icon className="h-3 w-3" style={{ color: type.color }} />
+                  {type.label}
+                </p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => setEditing(true)}
-                  className="text-muted-foreground hover:text-primary transition-colors mt-0.5">
-                  <Pencil className="h-3.5 w-3.5" />
+                <button onClick={() => { setEditing(e => !e); setEditForm({ name: goal.name, targetAmount: goal.targetAmount, currentAmount: goal.currentAmount, monthlyContribution: goal.monthlyContribution, annualReturnRate: goal.annualReturnRate }); }}
+                  className="p-1.5 rounded-lg hover:bg-black/5 text-muted-foreground hover:text-foreground transition-colors">
+                  {editing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
                 </button>
-                <button onClick={handleDelete} disabled={del}
-                  className="text-muted-foreground hover:text-destructive transition-colors mt-0.5">
-                  {del ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                <button onClick={handleDelete} disabled={deleting}
+                  className="p-1.5 rounded-lg hover:bg-black/5 text-muted-foreground hover:text-destructive transition-colors">
+                  {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 </button>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span className="text-xl font-bold" style={{ color: pct >= 100 ? "#10b981" : type.color }}>{pct}%</span>
-              <span className="text-xs text-muted-foreground">ของเป้าหมาย</span>
+
+            {/* Big percentage */}
+            <div className="mt-1.5">
+              <span className="text-2xl font-black tabular-nums" style={{ color: done ? "#10b981" : type.color }}>
+                {pct.toFixed(0)}%
+              </span>
+              <span className="text-xs text-muted-foreground ml-1">ของเป้าหมาย</span>
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          {[
-            { label: "มีอยู่แล้ว", value: thb(current) },
-            { label: "เป้าหมาย",   value: thb(target) },
-            { label: "ขาดอีก",     value: left === 0 ? "✓" : thb(left), green: left === 0 },
-          ].map(({ label, value, green }) => (
-            <div key={label} className="bg-muted/40 rounded-lg py-1.5 px-2">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className={cn("text-sm font-semibold", green && "text-emerald-600")}>{value}</p>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-1.5 text-center">
+          {([
+            { l: "ออมแล้ว", v: thb(current) },
+            { l: "เป้าหมาย", v: thb(target) },
+            { l: "ขาดอีก", v: done ? "✓" : thb(left), green: done },
+          ] as { l: string; v: string; green?: boolean }[]).map(({ l, v, green }) => (
+            <div key={l} className="bg-background/60 rounded-xl py-2">
+              <p className="text-[10px] text-muted-foreground">{l}</p>
+              <p className={cn("text-xs font-bold mt-0.5", green && "text-emerald-600")}>{v}</p>
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">ออม {thb(monthly)}/เดือน · {goal.annualReturnRate}%/ปี</span>
-          {pct >= 100 ? (
-            <span className="flex items-center gap-1 text-emerald-600 font-medium">
-              <CheckCircle2 className="h-3.5 w-3.5" />ถึงเป้าหมายแล้ว!
+
+        {/* Timeline */}
+        <div className="flex items-center justify-between text-xs border-t border-black/5 pt-2">
+          <span className="text-muted-foreground">ออม {thb(monthly)}/เดือน · {rate}%/ปี</span>
+          {done ? (
+            <span className="flex items-center gap-1 text-emerald-600 font-semibold">
+              <CheckCircle2 className="h-3.5 w-3.5" />ถึงเป้าแล้ว!
             </span>
           ) : goal.projection.projectedCompletionDate ? (
-            <span className="flex items-center gap-1 text-muted-foreground">
+            <span className="flex items-center gap-1 font-medium" style={{ color: type.color }}>
               <Clock className="h-3.5 w-3.5" />
               {goal.projection.projectedCompletionDate.slice(0, 7)}
-              {goal.projection.monthsRemaining !== null && ` (${goal.projection.monthsRemaining} เดือน)`}
+              {goal.projection.monthsRemaining !== null && ` · ${goal.projection.monthsRemaining} เดือน`}
             </span>
           ) : (
             <span className="flex items-center gap-1 text-amber-600">
-              <AlertCircle className="h-3.5 w-3.5" />ยังไม่สามารถฉายภาพ
+              <AlertCircle className="h-3.5 w-3.5" />ยังประมาณไม่ได้
             </span>
           )}
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Inline edit */}
+        {editing && (
+          <div className="border-t pt-3 space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground">แก้ไขเป้าหมาย</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2">
+                <input value={editForm.name} onChange={setE("name")} placeholder="ชื่อเป้าหมาย"
+                  className="w-full h-9 rounded-lg border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              </div>
+              {[
+                { k: "targetAmount",      p: "เป้าหมาย (บาท)" },
+                { k: "currentAmount",     p: "มีอยู่แล้ว (บาท)" },
+                { k: "monthlyContribution", p: "ออม/เดือน (บาท)" },
+                { k: "annualReturnRate",  p: "ผลตอบแทน (%/ปี)" },
+              ].map(({ k, p }) => (
+                <input key={k} type="number" min={0} placeholder={p}
+                  value={(editForm as Record<string, string>)[k]}
+                  onChange={setE(k)}
+                  className="h-9 rounded-lg border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              ))}
+            </div>
+            {/* Live calc in edit mode */}
+            {eTgt > 0 && <LiveCalc target={eTgt} current={eCur} monthly={eMon} rate={eRate} />}
+            <div className="flex gap-2">
+              <button onClick={handleSave} disabled={saving}
+                className="h-8 px-4 rounded-lg bg-primary text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                บันทึก
+              </button>
+              <button onClick={() => setEditing(false)}
+                className="h-8 px-3 rounded-lg border text-xs font-semibold hover:bg-muted">ยกเลิก</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
+// ─── Summary bar ──────────────────────────────────────────────────────────────
+
+function SummaryBar({ goals }: { goals: Goal[] }) {
+  if (goals.length === 0) return null;
+  const totalTarget  = goals.reduce((s, g) => s + Number(g.targetAmount), 0);
+  const totalCurrent = goals.reduce((s, g) => s + Number(g.currentAmount), 0);
+  const totalMonthly = goals.reduce((s, g) => s + Number(g.monthlyContribution), 0);
+  const overallPct   = totalTarget > 0 ? (totalCurrent / totalTarget) * 100 : 0;
+  const doneCount    = goals.filter(g => g.projection.progressPercent >= 100).length;
+
+  return (
+    <div className="rounded-2xl border bg-gradient-to-br from-primary/5 to-primary/0 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-bold">ภาพรวมเป้าหมายทั้งหมด</p>
+        <span className="text-xs text-muted-foreground">{doneCount}/{goals.length} ถึงเป้าแล้ว</span>
+      </div>
+      <div className="h-2.5 bg-muted rounded-full overflow-hidden mb-3">
+        <div className="h-full rounded-full bg-primary transition-all duration-700"
+          style={{ width: `${overallPct}%` }} />
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-center">
+        {([
+          { l: "ออมรวมแล้ว",       v: thb(totalCurrent) },
+          { l: "เป้าหมายรวม",       v: thb(totalTarget) },
+          { l: "ออมต่อเดือนรวม",    v: thb(totalMonthly) },
+        ] as { l: string; v: string }[]).map(({ l, v }) => (
+          <div key={l}>
+            <p className="text-[10px] text-muted-foreground">{l}</p>
+            <p className="text-sm font-bold mt-0.5">{v}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function GoalsPage() {
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const [goals, setGoals]     = useState<Goal[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
 
   const loadGoals = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/goals");
+    const res  = await fetch("/api/goals");
     const data = await res.json();
     setGoals(data.data ?? []);
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadGoals(); }, [loadGoals]);
+  useEffect(() => {
+    loadGoals();
+    // Load financial profile for smart suggestions
+    fetch("/api/user/financial-profile").then(r => r.json()).then(d => {
+      if (d.data) {
+        const p = d.data;
+        setProfile({
+          annualSalary:       Number(p.annualSalary ?? 0),
+          monthlyExpenses:    Number(p.monthlyExpenses ?? 0),
+          emergencyFundAmount: Number(p.emergencyFundAmount ?? 0),
+          totalDebt:          Number(p.totalDebt ?? 0),
+          monthlyDebtPayment: Number(p.monthlyDebtPayment ?? 0),
+        });
+      }
+    }).catch(() => {});
+  }, [loadGoals]);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError("");
-    setSaving(true);
-    const res = await fetch("/api/goals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.name,
-        goalType: form.goalType,
-        targetAmount: parseFloat(form.targetAmount),
-        currentAmount: parseFloat(form.currentAmount) || 0,
-        monthlyContribution: parseFloat(form.monthlyContribution),
-        annualReturnRate: parseFloat(form.annualReturnRate),
-      }),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (!res.ok) { setFormError(data.error ?? "เกิดข้อผิดพลาด"); return; }
-    setForm(EMPTY_FORM);
-    setShowForm(false);
-    await loadGoals();
+  const handleSaved = (g: Goal) => {
+    setGoals(prev => [g, ...prev]);
+    setShowAdd(false);
   };
 
   const handleDelete = (id: string) => setGoals(prev => prev.filter(g => g.id !== id));
+  const handleUpdate = (updated: Goal) => setGoals(prev => prev.map(g => g.id === updated.id ? updated : g));
 
-  const totalTarget  = goals.reduce((s, g) => s + Number(g.targetAmount), 0);
-  const totalCurrent = goals.reduce((s, g) => s + Number(g.currentAmount), 0);
-  const overallPct   = totalTarget > 0 ? Math.round(totalCurrent / totalTarget * 100) : 0;
-  const doneCount    = goals.filter(g => g.projection.progressPercent >= 100).length;
+  // Monthly capacity hint from profile
+  const monthlyIncome  = profile ? Math.round(profile.annualSalary / 12) : 0;
+  const savableGuess   = profile ? Math.max(0, monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment) : 0;
+  const totalMonthlyCommitted = goals.reduce((s, g) => s + Number(g.monthlyContribution), 0);
+  const remaining = savableGuess > 0 ? savableGuess - totalMonthlyCommitted : null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-5 max-w-2xl">
+      {/* Page header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Target className="h-6 w-6 text-primary" />
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <Target className="h-5 w-5 text-primary" />
             เป้าหมายการเงิน
           </h1>
-          <p className="text-muted-foreground text-sm">แผนเกษียณ + เป้าหมายทางการเงินทั้งหมด</p>
+          {profile && savableGuess > 0 && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              ออมได้ประมาณ <span className="font-semibold text-primary">{thb(savableGuess)}</span>/เดือน จากข้อมูลของคุณ
+              {remaining !== null && remaining >= 0 && totalMonthlyCommitted > 0 && (
+                <> · เหลือ <span className="font-semibold text-emerald-600">{thb(remaining)}</span></>
+              )}
+              {remaining !== null && remaining < 0 && (
+                <> · <span className="text-amber-600 font-semibold">เกินงบ {thb(Math.abs(remaining))}</span></>
+              )}
+            </p>
+          )}
         </div>
-        <Button onClick={() => setShowForm(v => !v)}>
-          <Plus className="h-4 w-4 mr-1" />เพิ่มเป้าหมาย
-        </Button>
+        <button
+          onClick={() => setShowAdd(v => !v)}
+          className={cn(
+            "flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-xl transition-all",
+            showAdd ? "bg-muted border" : "bg-primary text-white hover:bg-primary/90"
+          )}
+        >
+          {showAdd ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {showAdd ? "ยกเลิก" : "เพิ่มเป้าหมาย"}
+        </button>
       </div>
 
-      {/* ── Retirement Plan (pinned) ── */}
-      <RetirementWidget />
+      {/* Add form */}
+      {showAdd && (
+        <AddGoalPanel profile={profile} onSaved={handleSaved} onCancel={() => setShowAdd(false)} />
+      )}
 
-      {goals.length > 0 && !loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: "เป้าหมายทั้งหมด", value: `${goals.length} รายการ`,  icon: <Target className="h-4 w-4 text-primary" /> },
-            { label: "สำเร็จแล้ว",      value: `${doneCount} รายการ`,  icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" /> },
-            { label: "รวมออมแล้ว",      value: thb(totalCurrent),          icon: <TrendingUp className="h-4 w-4 text-blue-500" /> },
-            { label: "ความคืบหน้ารวม", value: `${overallPct}%`,           icon: <Clock className="h-4 w-4 text-amber-500" /> },
-          ].map(({ label, value, icon }) => (
-            <Card key={label}>
-              <CardContent className="pt-3 pb-3">
-                <div className="flex items-center gap-2 mb-1">{icon}<p className="text-xs text-muted-foreground">{label}</p></div>
-                <p className="font-bold text-lg">{value}</p>
-              </CardContent>
-            </Card>
+      {/* Summary */}
+      <SummaryBar goals={goals} />
+
+      {/* Goal list */}
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : goals.length > 0 ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {goals.map(g => (
+            <GoalCard key={g.id} goal={g} onDelete={handleDelete} onUpdate={handleUpdate} />
           ))}
         </div>
-      )}
-
-      {showForm && (
-        <Card className="border-primary/30">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">เพิ่มเป้าหมายใหม่</CardTitle>
-            <CardDescription>กรอกข้อมูลเป้าหมายที่คุณต้องการบรรลุ</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSave} className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <Label>ชื่อเป้าหมาย *</Label>
-                <Input placeholder="เช่น เกษียณอายุ 60 ปี" value={form.name}
-                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))} required />
-              </div>
-              <div className="space-y-1">
-                <Label>ประเภท</Label>
-                <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-                  value={form.goalType} onChange={e => setForm(p => ({ ...p, goalType: e.target.value }))}>
-                  {GOAL_TYPES.map(t => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label>จำนวนเงินเป้าหมาย (บาท) *</Label>
-                <Input type="number" placeholder="15,000,000" value={form.targetAmount}
-                  onChange={e => setForm(p => ({ ...p, targetAmount: e.target.value }))} required min={1} />
-              </div>
-              <div className="space-y-1">
-                <Label>ออมต่อเดือน (บาท) *</Label>
-                <Input type="number" placeholder="15,000" value={form.monthlyContribution}
-                  onChange={e => setForm(p => ({ ...p, monthlyContribution: e.target.value }))} required min={0} />
-              </div>
-              <div className="space-y-1">
-                <Label>มีอยู่แล้ว (บาท)</Label>
-                <Input type="number" placeholder="0" value={form.currentAmount}
-                  onChange={e => setForm(p => ({ ...p, currentAmount: e.target.value }))} min={0} />
-              </div>
-              <div className="space-y-1">
-                <Label>ผลตอบแทนคาดหวัง (% / ปี)</Label>
-                <Input type="number" placeholder="7" value={form.annualReturnRate}
-                  onChange={e => setForm(p => ({ ...p, annualReturnRate: e.target.value }))} min={0} max={100} step={0.1} />
-              </div>
-              {formError && <p className="md:col-span-2 text-sm text-destructive">{formError}</p>}
-              <div className="md:col-span-2 flex gap-2">
-                <Button type="submit" disabled={saving}>
-                  {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-1" />กำลังบันทึก…</> : "บันทึกเป้าหมาย"}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => { setShowForm(false); setFormError(""); }}>ยกเลิก</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-      ) : goals.length > 0 ? (
-        <div className="grid md:grid-cols-2 gap-4">
-          {goals.map(g => <GoalCard key={g.id} goal={g} onDelete={handleDelete} onUpdate={updated => setGoals(prev => prev.map(x => x.id === updated.id ? updated : x))} />)}
+      ) : !showAdd ? (
+        <div className="rounded-2xl border border-dashed flex flex-col items-center justify-center py-16 text-center gap-4">
+          <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <Target className="h-8 w-8 text-primary/60" />
+          </div>
+          <div>
+            <p className="font-semibold text-muted-foreground">ยังไม่มีเป้าหมายการเงิน</p>
+            <p className="text-xs text-muted-foreground mt-1">เริ่มสร้างเป้าหมายแรกของคุณเลย!</p>
+          </div>
+          <button onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl bg-primary text-white hover:bg-primary/90">
+            <Plus className="h-4 w-4" />เพิ่มเป้าหมายแรก
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
-      ) : !showForm ? (
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
-            <Target className="h-12 w-12 text-muted-foreground/30" />
-            <p className="text-muted-foreground text-sm">ยังไม่มีเป้าหมายการเงิน<br />เริ่มตั้งเป้าหมายแรกของคุณเลย!</p>
-            <Button variant="outline" onClick={() => setShowForm(true)}>
-              <Plus className="h-4 w-4 mr-1" />เพิ่มเป้าหมายแรก
-            </Button>
-          </CardContent>
-        </Card>
       ) : null}
     </div>
   );

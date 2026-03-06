@@ -4,9 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const PatchSchema = z.object({
-  name:         z.string().min(1).max(80).optional(),
-  emoji:        z.string().min(1).max(8).optional(),
-  currentValue: z.coerce.number().min(0).optional(),
+  name:          z.string().min(1).max(120).optional(),
+  emoji:         z.string().min(1).max(8).optional(),
+  currentValue:  z.coerce.number().min(0).optional(),
+  units:         z.coerce.number().min(0).optional().nullable(),
+  avgCostPerUnit:z.coerce.number().min(0).optional().nullable(),
+  expectedReturn:z.coerce.number().min(0).max(100).optional().nullable(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

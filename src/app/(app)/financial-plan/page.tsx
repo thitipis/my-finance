@@ -1,11 +1,12 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
-  MapPin, Loader2, CheckCircle2, TrendingUp, Banknote,
-  ChevronRight, Target, Info, AlertCircle, Pencil, ChevronDown,
+  BarChart3, Loader2, TrendingUp, TrendingDown, Banknote,
+  ShieldCheck, AlertTriangle, CheckCircle2, AlertCircle,
+  Wallet, PiggyBank, Scale, Target, Activity,
+  ChevronRight, Flame,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -15,11 +16,12 @@ import Link from "next/link";
 interface ProfileData {
   annualSalary: number; bonus: number; otherIncome: number;
   monthlyExpenses: number; monthlyDebtPayment: number; totalDebt: number;
+  debtInterestRate: number;
   emergencyFundAmount: number;
   rmfAmount: number; ssfAmount: number; thaiEsgAmount: number;
   ltfAmount: number; providentFundAmount: number;
   lifeInsurancePremium: number; healthInsurancePremium: number;
-  annuityInsurancePremium: number;
+  annuityInsurancePremium: number; withheldTax: number;
 }
 
 interface PlanData {
@@ -30,13 +32,20 @@ interface PlanData {
 
 interface RiskData { riskLevel: "conservative" | "moderate" | "aggressive"; }
 
+interface PortfolioAsset {
+  id: string; assetType?: string; currentValue: number;
+  expectedReturn?: number | null; group?: string;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const thb  = (n: number) => `฿${Math.round(n).toLocaleString("th-TH")}`;
 const thbM = (n: number) =>
   n >= 1_000_000 ? `฿${(n / 1_000_000).toFixed(1)}M`
-  : n >= 1_000   ? `฿${Math.round(n / 1_000)}K`
+  : n >= 1_000   ? `฿${(n / 1_000).toFixed(0)}K`
   : thb(n);
+const pct = (n: number, total: number) =>
+  total > 0 ? `${((n / total) * 100).toFixed(1)}%` : "—";
 
 function getMarginalRate(income: number): number {
   if (income <= 150_000)   return 0;
@@ -57,415 +66,131 @@ function calcFV(pv: number, annualRate: number, years: number, monthlyPmt: numbe
   return pv * g + monthlyPmt * (g - 1) / r;
 }
 
-// ─── Step Model ───────────────────────────────────────────────────────────────
+// ─── UI Components ────────────────────────────────────────────────────────────
 
-type StepStatus = "done" | "partial" | "todo";
-type Urgency    = "critical" | "important" | "good";
+type Health = "good" | "warn" | "bad" | "neutral";
 
-interface Step {
-  id: string;
-  title: string;
-  status: StepStatus;
-  urgency: Urgency;
-  summary: string;
-  why: string;
-  how: string[];
-  benefit: string;
-  link?: { href: string; label: string };
-}
+const HEALTH_COLOR: Record<Health, string> = {
+  good:    "text-emerald-600",
+  warn:    "text-amber-600",
+  bad:     "text-red-500",
+  neutral: "text-muted-foreground",
+};
+const HEALTH_BG: Record<Health, string> = {
+  good:    "bg-emerald-50 border-emerald-200",
+  warn:    "bg-amber-50  border-amber-200",
+  bad:     "bg-red-50    border-red-200",
+  neutral: "bg-muted/40  border-muted",
+};
 
-// ─── Recommendation Engine ───────────────────────────────────────────────────
-
-function buildSteps(p: ProfileData, plan: PlanData | null, risk: RiskData | null): Step[] {
-  const steps: Step[] = [];
-  const annualIncome  = p.annualSalary + p.bonus + p.otherIncome;
-  const monthlyIncome = annualIncome / 12;
-  const monthlyFree   = monthlyIncome - p.monthlyExpenses - p.monthlyDebtPayment;
-  const marginalRate  = getMarginalRate(annualIncome);
-
-  const riskConfig = risk ? {
-    conservative: { label: "อนุรักษ์นิยม", portfolio: "ตราสารหนี้ 70% / หุ้น 30%",              ret: 4  },
-    moderate:     { label: "สมดุล",        portfolio: "หุ้น 50% / ตราสารหนี้ 35% / REITs 15%", ret: 7  },
-    aggressive:   { label: "เชิงรุก",      portfolio: "หุ้น 80% / สินทรัพย์ทางเลือก 20%",     ret: 10 },
-  }[risk.riskLevel] : null;
-
-  // ── Step 1: Emergency Fund ─────────────────────────────────────────────────
-  const efMonths = p.monthlyExpenses > 0 ? p.emergencyFundAmount / p.monthlyExpenses : 0;
-  const efTarget = p.monthlyExpenses * 6;
-  const efGap    = Math.max(0, efTarget - p.emergencyFundAmount);
-  steps.push({
-    id: "emergency",
-    title: "สร้างกองทุนฉุกเฉิน",
-    status: efMonths >= 6 ? "done" : efMonths >= 3 ? "partial" : "todo",
-    urgency: efMonths < 3 ? "critical" : efMonths < 6 ? "important" : "good",
-    summary: efMonths >= 6
-      ? `มีแล้ว ${efMonths.toFixed(1)} เดือน ✓`
-      : `มีอยู่ ${efMonths.toFixed(1)} เดือน — ขาดอีก ${thb(efGap)}`,
-    why: "กองทุนฉุกเฉินคือรากฐานของแผนการเงิน ป้องกันไม่ให้ต้องขายสินทรัพย์ลงทุนในยามฉุกเฉิน ควรมีอย่างน้อย 6 เดือนของรายจ่าย",
-    how: efMonths >= 6 ? ["✓ กองทุนฉุกเฉินเพียงพอแล้ว"] : [
-      `เก็บเพิ่มเดือนละ ${thb(Math.max(1000, Math.min(monthlyFree * 0.5, efGap / 12)))}`,
-      `เป้าหมาย: ${thb(efTarget)} (6 เดือน × ค่าใช้จ่าย ${thb(p.monthlyExpenses)})`,
-      "เก็บในบัญชีออมทรัพย์ดอกเบี้ยสูงหรือกองทุนตลาดเงิน (ถอนได้ทุกวัน)",
-    ],
-    benefit: efMonths >= 6 ? "พร้อมรับเหตุฉุกเฉินโดยไม่กระทบแผนลงทุน" : `เมื่อครบ ${thb(efTarget)} แล้ว นำเงินส่วนที่เหลือไปลงทุนได้เลย`,
-    link: { href: "/my-data?tab=debts", label: "อัปเดตยอดเงินสำรอง" },
-  });
-
-  // ── Step 2: Debt ──────────────────────────────────────────────────────────
-  if (p.totalDebt > 0 || p.monthlyDebtPayment > 0) {
-    const dti = monthlyIncome > 0 ? p.monthlyDebtPayment / monthlyIncome : 0;
-    steps.push({
-      id: "debt",
-      title: "จัดการภาระหนี้",
-      status: dti < 0.2 ? "done" : dti < 0.35 ? "partial" : "todo",
-      urgency: dti > 0.5 ? "critical" : dti > 0.35 ? "important" : "good",
-      summary: `DTI ${Math.round(dti * 100)}% — ${dti < 0.3 ? "อยู่ในเกณฑ์ดี" : "สูงเกินไป ควรเร่งปิด"}`,
-      why: "ดอกเบี้ยหนี้บัตรเครดิตและสินเชื่อส่วนบุคคลอยู่ที่ 18-28%/ปี สูงกว่าผลตอบแทนการลงทุนปกติ ควรปิดหนี้เหล่านี้ก่อนลงทุนเพิ่ม",
-      how: [
-        `ภาระผ่อนต่อเดือน: ${thb(p.monthlyDebtPayment)} = ${Math.round(dti * 100)}% ของรายได้ (เป้า < 30%)`,
-        "วิธี Avalanche: โอนเงินพิเศษไปปิดหนี้ดอกเบี้ยสูงสุดก่อน ประหยัดดอกเบี้ยได้มากสุด",
-        "หลีกเลี่ยงการก่อหนี้ใหม่ทุกชนิดระหว่างปิดหนี้",
-        dti > 0.3 ? `ลด DTI ให้ถึง 30% = ต้องลดผ่อนเดือนละ ${thb(p.monthlyDebtPayment - monthlyIncome * 0.3)}` : "✓ อยู่ในเกณฑ์ดี",
-      ],
-      benefit: `เมื่อปลดหนี้ได้ จะมีเงินลงทุนเพิ่ม ${thb(p.monthlyDebtPayment * 0.5)}-${thb(p.monthlyDebtPayment)}/เดือน`,
-      link: { href: "/my-data?tab=debts", label: "ดูข้อมูลหนี้สิน" },
-    });
-  }
-
-  // ── Step 3: Tax Optimization ──────────────────────────────────────────────
-  if (annualIncome > 150_000 && marginalRate > 0) {
-    const ssfRoom     = Math.max(0, Math.min(annualIncome * 0.30, 200_000) - p.ssfAmount);
-    const rmfRoom     = Math.max(0, Math.min(annualIncome * 0.30, 500_000) - p.rmfAmount);
-    const esgRoom     = Math.max(0, Math.min(annualIncome * 0.30, 300_000) - p.thaiEsgAmount);
-    const lifeRoom    = Math.max(0, 100_000  - p.lifeInsurancePremium);
-    const annuityRoom = Math.max(0, 200_000  - p.annuityInsurancePremium);
-    const totalRoom   = ssfRoom + rmfRoom + esgRoom + lifeRoom + annuityRoom;
-    const taxSaving   = Math.round(totalRoom * marginalRate);
-    const investRoom  = ssfRoom + rmfRoom + esgRoom;
-
-    const howList: string[] = [];
-    if (ssfRoom  > 0) howList.push(`SSF: ลงทุนเพิ่ม ${thb(ssfRoom)} → ประหยัดภาษี ${thb(Math.round(ssfRoom * marginalRate))}`);
-    if (rmfRoom  > 0) howList.push(`RMF: ลงทุนเพิ่ม ${thb(rmfRoom)} → ประหยัดภาษี ${thb(Math.round(rmfRoom * marginalRate))}`);
-    if (esgRoom  > 0) howList.push(`Thai ESG: ลงทุนเพิ่ม ${thb(esgRoom)} → ประหยัดภาษี ${thb(Math.round(esgRoom * marginalRate))}`);
-    if (lifeRoom > 0) howList.push(`ประกันชีวิต: เพิ่มเบี้ย ${thb(lifeRoom)} → ประหยัดภาษี ${thb(Math.round(lifeRoom * marginalRate))}`);
-    if (annuityRoom > 0) howList.push(`ประกันบำนาญ: เบี้ย ${thb(annuityRoom)} → ประหยัดภาษี ${thb(Math.round(annuityRoom * marginalRate))}`);
-
-    steps.push({
-      id: "tax",
-      title: "ลดหย่อนภาษีให้สูงสุดก่อนลงทุน",
-      status: totalRoom < 5_000 ? "done" : investRoom > 100_000 ? "todo" : "partial",
-      urgency: totalRoom < 5_000 ? "good" : investRoom > 50_000 ? "important" : "good",
-      summary: totalRoom < 5_000
-        ? "ใช้สิทธิ์ลดหย่อนครบแล้ว ✓"
-        : `ยังเหลือสิทธิ์ ${thb(totalRoom)} → ประหยัดภาษีได้ ${thb(taxSaving)}/ปี`,
-      why: `ขั้นภาษีของคุณ ${Math.round(marginalRate * 100)}% — ลงทุน SSF/RMF ทุก ฿1 ได้ภาษีคืนทันที ${Math.round(marginalRate * 100)} สตางค์ ก่อนที่ผลตอบแทนจะสะสม นี่คือผลตอบแทน "ฟรี" ที่ไม่ควรพลาด`,
-      how: howList.length > 0 ? howList : ["✓ ใช้สิทธิ์ลดหย่อนครบทุกประเภทแล้ว"],
-      benefit: totalRoom < 5_000
-        ? "เพิ่มประสิทธิภาพภาษีสูงสุดแล้ว"
-        : `ประหยัดภาษี ${thb(taxSaving)}/ปี และยังได้ผลตอบแทนจากการลงทุนเพิ่มอีก`,
-      link: { href: "/tax", label: "คำนวณภาษีโดยละเอียด" },
-    });
-  }
-
-  // ── Step 4: Invest Consistently ───────────────────────────────────────────
-  const totalInvested = p.rmfAmount + p.ssfAmount + p.thaiEsgAmount + p.ltfAmount + p.providentFundAmount;
-  const investRatio   = annualIncome > 0 ? totalInvested / annualIncome : 0;
-  steps.push({
-    id: "invest",
-    title: "ลงทุนสม่ำเสมอตามระดับความเสี่ยง",
-    status: investRatio >= 0.15 ? "done" : investRatio > 0 ? "partial" : "todo",
-    urgency: totalInvested === 0 ? "important" : "good",
-    summary: risk
-      ? `ระดับ: ${riskConfig?.label} · ลงทุน ${thb(totalInvested)}/ปี (${Math.round(investRatio * 100)}% รายได้)`
-      : `ลงทุนแล้ว ${thb(totalInvested)}/ปี — ยังไม่ได้ประเมินความเสี่ยง`,
-    why: "ลงทุนสม่ำเสมอทุกเดือน (DCA) ลดความเสี่ยงจากการเข้าผิดจังหวะ ดอกเบี้ยทบต้นทำงานดีที่สุดเมื่อเริ่มเร็วและสม่ำเสมอ",
-    how: [
-      riskConfig ? `พอร์ตที่เหมาะกับคุณ: ${riskConfig.portfolio}` : "ทำแบบประเมินความเสี่ยงก่อนเพื่อรับคำแนะนำพอร์ตที่เหมาะ",
-      monthlyFree > 0
-        ? `ตั้ง DCA อัตโนมัติ ${thb(Math.round(monthlyFree * 0.7))}/เดือน (70% ของเงินคงเหลือ)`
-        : "ลดค่าใช้จ่ายเพื่อสร้างเงินลงทุน",
-      investRatio < 0.15
-        ? `เป้าหมาย: ลงทุน 15% ของรายได้ = ${thb(annualIncome * 0.15)}/ปี (ปัจจุบัน ${Math.round(investRatio * 100)}%)`
-        : "✓ ลงทุนถึง 15% ของรายได้แล้ว",
-      "SSF, RMF, Thai ESG ได้ทั้งผลตอบแทนและลดหย่อนภาษี — เริ่มที่นี่ก่อน",
-    ],
-    benefit: riskConfig
-      ? `ลงทุน ${thb(Math.round(monthlyFree * 0.7))}/เดือน ตามพอร์ต ${riskConfig.label} คาดผลตอบแทน ~${riskConfig.ret}%/ปี`
-      : "สร้างความมั่งคั่งระยะยาวด้วยพลังดอกเบี้ยทบต้น",
-    link: risk ? { href: "/tools/risk", label: "ดูผลประเมินความเสี่ยง" } : { href: "/tools/risk", label: "ประเมินความเสี่ยงตอนนี้" },
-  });
-
-  // ── Step 5: Retirement Projection ────────────────────────────────────────
-  if (plan?.currentAge && plan?.retirementAge && plan?.monthlyRetirementNeeds) {
-    const yrs       = Math.max(1, plan.retirementAge - plan.currentAge);
-    const ret       = ((plan.expectedReturn ?? riskConfig?.ret ?? 7)) / 100;
-    const pv        = plan.currentSavings ?? (p.emergencyFundAmount / 2);
-    const pmt       = plan.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
-    const projected = calcFV(pv, ret, yrs, pmt);
-    const realNeeds = plan.monthlyRetirementNeeds * Math.pow(1.03, yrs);
-    const corpus    = (realNeeds * 12) / 0.04;
-    const pct       = corpus > 0 ? Math.min(100, Math.round((projected / corpus) * 100)) : 100;
-    const onTrack   = projected >= corpus;
-    const gap       = Math.max(0, corpus - projected);
-    const r12       = (1 + ret) ** (1 / 12) - 1;
-    const fvF       = Math.abs(r12) > 1e-9 ? ((1 + r12) ** (yrs * 12) - 1) / r12 : yrs * 12;
-    const pvFV      = pv * (1 + r12) ** (yrs * 12);
-    const addNeeded = Math.max(0, (corpus - pvFV) / fvF);
-
-    steps.push({
-      id: "retirement",
-      title: "ฉายภาพแผนเกษียณ",
-      status: onTrack ? "done" : pct >= 60 ? "partial" : "todo",
-      urgency: onTrack ? "good" : pct < 50 ? "critical" : "important",
-      summary: onTrack
-        ? `อยู่ในเส้นทาง ✓ คาด ${thbM(projected)} เมื่ออายุ ${plan.retirementAge} ปี`
-        : `ถึงเป้า ${pct}% — ขาดอีก ${thbM(gap)}`,
-      why: `เกษียณอายุ ${plan.retirementAge} ปี (อีก ${yrs} ปี) ใช้จ่าย ${thb(plan.monthlyRetirementNeeds)}/เดือน → ต้องการ corpus ${thbM(corpus)} ตามกฎ 4%`,
-      how: onTrack ? [
-        `✓ คาดการณ์ความมั่งคั่ง: ${thbM(projected)}`,
-        `เป้าหมาย corpus: ${thbM(corpus)}`,
-        "รักษาอัตราออมและลงทุนในระดับนี้ต่อไป ทบทวนแผนทุกปี",
-      ] : [
-        `คาดการณ์ปัจจุบัน ${thbM(projected)} vs ต้องการ ${thbM(corpus)}`,
-        addNeeded > 0 ? `ต้องเพิ่มการออม ${thb(addNeeded)}/เดือน เพื่อให้ถึงเป้า` : "",
-        `หรือปรับพอร์ตเป็นเชิงรุกขึ้น — ผลตอบแทนเพิ่ม 1% ทำให้ corpus เพิ่ม ~${Math.round(yrs * 3)}%`,
-        `หรือลดค่าใช้จ่ายหลังเกษียณ จาก ${thb(plan.monthlyRetirementNeeds)} เป็น ${thb(Math.round(plan.monthlyRetirementNeeds * (projected / corpus)))}`,
-      ].filter(Boolean),
-      benefit: onTrack
-        ? "แผนเกษียณอยู่ในเส้นทาง"
-        : addNeeded > 0 ? `เพิ่มออม ${thb(addNeeded)}/เดือน → เกษียณได้ตามแผน` : "ปรับกลยุทธ์เพื่อถึงเป้าหมาย",
-      link: { href: "/goals", label: "แก้ไขข้อมูลเกษียณ" },
-    });
-  } else {
-    steps.push({
-      id: "retirement",
-      title: "กำหนดแผนเกษียณ",
-      status: "todo",
-      urgency: "important",
-      summary: "ยังไม่ได้กำหนดข้อมูลเกษียณ",
-      why: "ยิ่งเริ่มวางแผนเกษียณเร็ว ยิ่งต้องออมน้อยลงต่อเดือน เพราะดอกเบี้ยทบต้นมีเวลาทำงานนานขึ้น",
-      how: [
-        "กรอกอายุปัจจุบัน, อายุเกษียณเป้าหมาย, ค่าใช้จ่ายหลังเกษียณ",
-        "ระบบจะคำนวณว่าต้องออมเดือนละเท่าไหร่และคุณอยู่ในเส้นทางหรือไม่",
-      ],
-      benefit: "รู้ตัวเลขที่ชัดเจน ออมได้ถูกต้อง ไม่มากไม่น้อยเกินไป",
-      link: { href: "/goals", label: "กำหนดข้อมูลเกษียณ →" },
-    });
-  }
-
-  return steps;
-}
-
-// ─── Missing Data Detector ──────────────────────────────────────────────────────
-
-interface MissingItem {
-  label: string;
-  detail: string;
-  href: string;
-  priority: "critical" | "important" | "optional";
-}
-
-function computeMissing(profile: ProfileData | null, plan: PlanData | null, risk: RiskData | null): MissingItem[] {
-  const items: MissingItem[] = [];
-  if (!profile || (profile.annualSalary + profile.bonus + profile.otherIncome) === 0) {
-    items.push({ label: "รายได้", detail: "ยังไม่มีข้อมูลรายได้ — จำเป็นในทุกการคำนวณ", href: "/my-data?tab=income", priority: "critical" });
-  }
-  if (profile && profile.monthlyExpenses === 0) {
-    items.push({ label: "ค่าใช้จ่าย/เดือน", detail: "ใช้คำนวณกระแสเงินสดและเงินสำรอง", href: "/my-data?tab=income", priority: "critical" });
-  }
-  if (profile && profile.emergencyFundAmount === 0) {
-    items.push({ label: "เงินสำรองฉุกเฉิน", detail: "กรอกยอดเงินสำรองที่มีอยู่ (0 = ไม่มี หรือยังไม่ได้กรอก)", href: "/my-data?tab=debts", priority: "critical" });
-  }
-  if (!risk) {
-    items.push({ label: "ระดับความเสี่ยง", detail: "ยังไม่ได้ประเมิน — ใช้คำนวณพอร์ตลงทุนที่เหมาะสม", href: "/tools/risk", priority: "important" });
-  }
-  if (!plan?.currentAge || !plan?.retirementAge || !plan?.monthlyRetirementNeeds) {
-    items.push({ label: "ข้อมูลเกษียณ", detail: "อายุ, อายุเกษียณ, ค่าใช้จ่ายหลังเกษียณ — ใช้คำนวณการฉายภาพเกษียณ", href: "/goals", priority: "important" });
-  }
-  if (profile && profile.lifeInsurancePremium === 0 && profile.healthInsurancePremium === 0) {
-    items.push({ label: "ข้อมูลประกัน", detail: "ยังไม่ได้กรอกเบี้ยประกันชีวิต/สุขภาพ — ใช้คำนวณลดหย่อนภาษี", href: "/my-data?tab=insurance", priority: "optional" });
-  }
-  return items;
-}
-
-interface MissingBannerProps { items: MissingItem[]; }
-function MissingDataBanner({ items }: MissingBannerProps) {
-  const [open, setOpen] = useState(items.length > 0);
-  if (items.length === 0) return null;
-  const critical  = items.filter(i => i.priority === "critical").length;
-  const important = items.filter(i => i.priority === "important").length;
-  const color = critical > 0 ? "amber" : "blue";
+function KpiCard({
+  icon: Icon, label, value, sub, health = "neutral", link,
+}: {
+  icon: React.ElementType; label: string; value: string;
+  sub?: string; health?: Health; link?: { href: string; label: string };
+}) {
   return (
-    <div className={cn(
-      "rounded-xl border p-4 space-y-3",
-      color === "amber"
-        ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200"
-        : "bg-blue-50 dark:bg-blue-950/20 border-blue-200"
-    )}>
-      <button className="w-full flex items-center justify-between" onClick={() => setOpen(o => !o)}>
-        <div className="flex items-center gap-2">
-          <Pencil className={cn("h-4 w-4 shrink-0 mt-0.5", color === "amber" ? "text-amber-600" : "text-blue-600")} />
-          <div className="text-left">
-            <p className={cn("font-semibold text-sm", color === "amber" ? "text-amber-800 dark:text-amber-300" : "text-blue-800 dark:text-blue-300")}>
-              ข้อมูลที่ยังขาด {items.length} รายการ
-              {critical > 0 && <span className="ml-2 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">จำเป็น {critical}</span>}
-              {important > 0 && <span className="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">สำคัญ {important}</span>}
-            </p>
-            <p className={cn("text-xs mt-0.5", color === "amber" ? "text-amber-700/70" : "text-blue-600/70")}>
-              กรอกข้อมูลเพิ่มเติมให้ครบถ้วน — คำแนะนำจะแม่นยำขึ้น
-            </p>
-          </div>
+    <Card className={cn("border", HEALTH_BG[health])}>
+      <CardContent className="pt-4 pb-4 flex flex-col gap-1">
+        <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium">
+          <Icon className={cn("h-4 w-4 shrink-0", HEALTH_COLOR[health])} />
+          {label}
         </div>
-        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className="grid sm:grid-cols-2 gap-2">
-          {items.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-start gap-2 rounded-lg border px-3 py-2 text-sm hover:opacity-80 transition-opacity",
-                item.priority === "critical"  ? "bg-red-50 border-red-200" :
-                item.priority === "important" ? "bg-amber-50 border-amber-200" :
-                "bg-muted/60 border-muted"
-              )}
-            >
-              <AlertCircle className={cn("h-3.5 w-3.5 shrink-0 mt-0.5",
-                item.priority === "critical"  ? "text-red-500" :
-                item.priority === "important" ? "text-amber-500" :
-                "text-muted-foreground"
-              )} />
-              <div className="min-w-0">
-                <p className="font-semibold text-xs">{item.label}</p>
-                <p className="text-xs text-muted-foreground truncate">{item.detail}</p>
-              </div>
-              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 ml-auto" />
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Step Card UI ─────────────────────────────────────────────────────────────
-
-const STATUS_STYLE: Record<StepStatus, string> = {
-  done:    "bg-emerald-100 text-emerald-700 border-emerald-200",
-  partial: "bg-amber-100 text-amber-700 border-amber-200",
-  todo:    "bg-red-100 text-red-600 border-red-200",
-};
-const STATUS_LABEL: Record<StepStatus, string> = {
-  done: "เสร็จแล้ว", partial: "กำลังดำเนินการ", todo: "ยังไม่ทำ",
-};
-const URGENCY_BORDER: Record<Urgency, string> = {
-  critical: "border-l-red-500", important: "border-l-amber-400", good: "border-l-emerald-400",
-};
-
-function StepCard({ step, idx }: { step: Step; idx: number }) {
-  const [open, setOpen] = useState(step.status !== "done");
-  return (
-    <Card className={cn("border-l-4", URGENCY_BORDER[step.urgency])}>
-      <button className="w-full text-left" onClick={() => setOpen(o => !o)}>
-        <CardHeader className="pb-2 pt-4">
-          <div className="flex items-center gap-3">
-            <span className={cn(
-              "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold shrink-0",
-              step.status === "done" ? "bg-emerald-100 text-emerald-700"
-              : step.urgency === "critical" ? "bg-red-100 text-red-600"
-              : "bg-amber-100 text-amber-700"
-            )}>
-              {step.status === "done" ? "✓" : idx}
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold">{step.title}</span>
-                <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", STATUS_STYLE[step.status])}>
-                  {STATUS_LABEL[step.status]}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">{step.summary}</p>
-            </div>
-            <ChevronRight className={cn("h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-150", open && "rotate-90")} />
-          </div>
-        </CardHeader>
-      </button>
-
-      {open && (
-        <CardContent className="pb-4 pt-0 space-y-3 pl-[52px]">
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">ทำไมถึงสำคัญ</p>
-            <p className="text-sm leading-relaxed">{step.why}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">ทำอย่างไร</p>
-            <ul className="space-y-1.5">
-              {step.how.map((h, i) => (
-                <li key={i} className="text-sm flex items-start gap-2">
-                  <span className="text-primary shrink-0 font-bold mt-0.5">→</span>{h}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className={cn(
-            "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium",
-            step.status === "done" ? "bg-emerald-50 text-emerald-700" : "bg-primary/5 text-primary"
-          )}>
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-            {step.benefit}
-          </div>
-          {step.link && (
-            <Link href={step.link.href} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-              {step.link.label} →
-            </Link>
-          )}
-        </CardContent>
-      )}
+        <p className={cn("text-2xl font-bold tabular-nums leading-tight", HEALTH_COLOR[health])}>{value}</p>
+        {sub  && <p className="text-xs text-muted-foreground">{sub}</p>}
+        {link && (
+          <Link href={link.href} className="text-xs text-primary hover:underline flex items-center gap-0.5 mt-0.5">
+            {link.label}<ChevronRight className="h-3 w-3" />
+          </Link>
+        )}
+      </CardContent>
     </Card>
   );
 }
 
-// ─── Situation Row ────────────────────────────────────────────────────────────
-
-function Row({ label, value, sub, ok }: { label: string; value: string; sub?: string; ok?: boolean }) {
+function MetricRow({
+  label, value, sub, health = "neutral", bar, barMax, link,
+}: {
+  label: string; value: string; sub?: string;
+  health?: Health; bar?: number; barMax?: number;
+  link?: { href: string; label: string };
+}) {
+  const barPct = bar !== undefined && barMax ? Math.min(100, (bar / barMax) * 100) : null;
   return (
-    <div className="flex justify-between items-start py-1.5 border-b last:border-0">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <div className="text-right">
-        <span className={cn("text-sm font-semibold tabular-nums",
-          ok === true ? "text-emerald-600" : ok === false ? "text-red-500" : ""
-        )}>{value}</span>
-        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+    <div className="py-2.5 border-b last:border-0 space-y-1">
+      <div className="flex justify-between items-start gap-2">
+        <span className="text-xs text-muted-foreground leading-tight">{label}</span>
+        <div className="text-right shrink-0">
+          <span className={cn("text-sm font-semibold tabular-nums", HEALTH_COLOR[health])}>{value}</span>
+          {sub  && <p className="text-[10px] text-muted-foreground">{sub}</p>}
+          {link && <Link href={link.href} className="text-[10px] text-primary hover:underline">{link.label} →</Link>}
+        </div>
       </div>
+      {barPct !== null && (
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className={cn("h-full rounded-full transition-all",
+            health === "good" ? "bg-emerald-500" : health === "warn" ? "bg-amber-400" : health === "bad" ? "bg-red-400" : "bg-primary/60"
+          )} style={{ width: `${barPct}%` }} />
+        </div>
+      )}
     </div>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, color = "text-foreground" }: { icon: React.ElementType; title: string; color?: string }) {
+  return (
+    <div className={cn("flex items-center gap-2 font-semibold text-sm mb-3", color)}>
+      <Icon className="h-4 w-4 shrink-0" />{title}
+    </div>
+  );
+}
+
+function HealthBadge({ health }: { health: Health }) {
+  const styles: Record<Health, string> = {
+    good:    "bg-emerald-100 text-emerald-700",
+    warn:    "bg-amber-100  text-amber-700",
+    bad:     "bg-red-100    text-red-600",
+    neutral: "bg-muted      text-muted-foreground",
+  };
+  const label: Record<Health, string> = { good: "ดี", warn: "พอใช้", bad: "ควรปรับ", neutral: "—" };
+  return (
+    <span className={cn("inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", styles[health])}>
+      {label[health]}
+    </span>
   );
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function FinancialPlanPage() {
+export default function FinancialAnalysisPage() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [plan,    setPlan]    = useState<PlanData | null>(null);
   const [risk,    setRisk]    = useState<RiskData | null>(null);
+  const [assets,  setAssets]  = useState<PortfolioAsset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"overview"|"cashflow"|"investment"|"retirement">("overview");
 
   useEffect(() => {
     Promise.all([
       fetch("/api/user/financial-profile").then(r => r.json()),
       fetch("/api/user/financial-plan").then(r => r.json()),
       fetch("/api/user/risk-assessment").then(r => r.json()),
-    ]).then(([profRes, planRes, riskRes]) => {
+      fetch("/api/user/portfolio-assets").then(r => r.json()),
+    ]).then(([profRes, planRes, riskRes, portRes]) => {
       if (profRes.data) {
         const d = profRes.data;
         setProfile({
           annualSalary: Number(d.annualSalary ?? 0), bonus: Number(d.bonus ?? 0), otherIncome: Number(d.otherIncome ?? 0),
-          monthlyExpenses: Number(d.monthlyExpenses ?? 0), monthlyDebtPayment: Number(d.monthlyDebtPayment ?? 0), totalDebt: Number(d.totalDebt ?? 0),
+          monthlyExpenses: Number(d.monthlyExpenses ?? 0), monthlyDebtPayment: Number(d.monthlyDebtPayment ?? 0),
+          totalDebt: Number(d.totalDebt ?? 0), debtInterestRate: Number(d.debtInterestRate ?? 0),
           emergencyFundAmount: Number(d.emergencyFundAmount ?? 0),
-          rmfAmount: Number(d.rmfAmount ?? 0), ssfAmount: Number(d.ssfAmount ?? 0), thaiEsgAmount: Number(d.thaiEsgAmount ?? 0),
-          ltfAmount: Number(d.ltfAmount ?? 0), providentFundAmount: Number(d.providentFundAmount ?? 0),
-          lifeInsurancePremium: Number(d.lifeInsurancePremium ?? 0), healthInsurancePremium: Number(d.healthInsurancePremium ?? 0),
+          rmfAmount: Number(d.rmfAmount ?? 0), ssfAmount: Number(d.ssfAmount ?? 0),
+          thaiEsgAmount: Number(d.thaiEsgAmount ?? 0), ltfAmount: Number(d.ltfAmount ?? 0),
+          providentFundAmount: Number(d.providentFundAmount ?? 0),
+          lifeInsurancePremium: Number(d.lifeInsurancePremium ?? 0),
+          healthInsurancePremium: Number(d.healthInsurancePremium ?? 0),
           annuityInsurancePremium: Number(d.annuityInsurancePremium ?? 0),
+          withheldTax: Number(d.withheldTax ?? 0),
         });
       }
       if (planRes.data) {
@@ -479,22 +204,16 @@ export default function FinancialPlanPage() {
         });
       }
       if (riskRes.data) setRisk(riskRes.data);
+      if (portRes.data && Array.isArray(portRes.data)) {
+        setAssets(portRes.data.map((a: PortfolioAsset) => ({
+          ...a,
+          currentValue: Number(a.currentValue),
+          expectedReturn: a.expectedReturn != null ? Number(a.expectedReturn) : null,
+        })));
+      }
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
-
-  const steps = useMemo(() => {
-    if (!profile) return [];
-    return buildSteps(profile, plan, risk);
-  }, [profile, plan, risk]);
-
-  const annualIncome  = profile ? profile.annualSalary + profile.bonus + profile.otherIncome : 0;
-  const monthlyIncome = annualIncome / 12;
-  const monthlyFree   = profile ? monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment : 0;
-  const totalInvested = profile ? profile.rmfAmount + profile.ssfAmount + profile.thaiEsgAmount + profile.ltfAmount + profile.providentFundAmount : 0;
-  const efMonths      = profile && profile.monthlyExpenses > 0 ? profile.emergencyFundAmount / profile.monthlyExpenses : null;
-  const doneCount     = steps.filter(s => s.status === "done").length;
-  const missingItems  = useMemo(() => computeMissing(profile, plan, risk), [profile, plan, risk]);
 
   if (loading) return (
     <div className="flex justify-center py-24">
@@ -502,144 +221,956 @@ export default function FinancialPlanPage() {
     </div>
   );
 
-  if (!profile || annualIncome === 0) return (
-    <div className="max-w-xl mx-auto space-y-5 pt-8 text-center">
-      <MapPin className="h-12 w-12 text-muted-foreground/30 mx-auto" />
-      <h2 className="text-xl font-bold">กรอกข้อมูลก่อนเพื่อดูแผนการเงิน</h2>
-      <p className="text-muted-foreground text-sm max-w-sm mx-auto">
-        ระบบจะวิเคราะห์สถานการณ์ของคุณและสร้างแผนแนะนำเฉพาะบุคคลโดยอัตโนมัติ ไม่ต้องกรอกซ้ำ
-      </p>
-      <Link href="/my-data">
-        <Button><Banknote className="h-4 w-4 mr-2" />ไปกรอกข้อมูล My Data →</Button>
+  if (!profile) return (
+    <div className="max-w-xl mx-auto space-y-4 pt-12 text-center">
+      <BarChart3 className="h-12 w-12 text-muted-foreground/30 mx-auto" />
+      <h2 className="text-xl font-bold">กรอกข้อมูลก่อนเพื่อดู Financial Analysis</h2>
+      <p className="text-muted-foreground text-sm">ระบบจะวิเคราะห์สถานะการเงินจากข้อมูลที่คุณกรอกใน My Data</p>
+      <Link href="/my-data" className="inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline">
+        <Banknote className="h-4 w-4" />ไปกรอกข้อมูล My Data →
       </Link>
     </div>
   );
 
-  const yearsToRetire = plan?.currentAge && plan?.retirementAge
-    ? Math.max(0, plan.retirementAge - plan.currentAge)
+  // ── Derived numbers ──────────────────────────────────────────────────────
+  const annualIncome  = profile.annualSalary + profile.bonus + profile.otherIncome;
+  const monthlyIncome = annualIncome / 12;
+  const monthlyFree   = monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment;
+  const marginalRate  = getMarginalRate(annualIncome);
+  const expenseRatio  = monthlyIncome > 0 ? profile.monthlyExpenses / monthlyIncome : 0;
+  const savingsRate   = monthlyIncome > 0 ? Math.max(0, monthlyFree) / monthlyIncome : 0;
+  const dti           = monthlyIncome > 0 ? profile.monthlyDebtPayment / monthlyIncome : 0;
+  const efMonths      = profile.monthlyExpenses > 0 ? profile.emergencyFundAmount / profile.monthlyExpenses : null;
+  const efTarget      = profile.monthlyExpenses * 6;
+
+  // Tax deduction
+  const TAX_FUNDS = [
+    { label: "RMF",         val: profile.rmfAmount,               cap: Math.min(annualIncome * 0.30, 500_000) },
+    { label: "SSF",         val: profile.ssfAmount,               cap: Math.min(annualIncome * 0.30, 200_000) },
+    { label: "Thai ESG",    val: profile.thaiEsgAmount,           cap: Math.min(annualIncome * 0.30, 300_000) },
+    { label: "LTF",         val: profile.ltfAmount,               cap: Math.min(annualIncome * 0.30, 500_000) },
+    { label: "PVD",         val: profile.providentFundAmount,     cap: Math.min(annualIncome * 0.30, 500_000) },
+    { label: "ประกันชีวิต", val: profile.lifeInsurancePremium,    cap: 100_000 },
+    { label: "ประกันบำนาญ", val: profile.annuityInsurancePremium, cap: 200_000 },
+  ];
+  const totalTaxInvested = TAX_FUNDS.reduce((s, f) => s + f.val, 0);
+  const totalTaxRoom     = TAX_FUNDS.reduce((s, f) => s + Math.max(0, f.cap - f.val), 0);
+  const taxSaving        = Math.round(totalTaxRoom * marginalRate);
+
+  // Portfolio
+  const TAX_CODES  = ["rmf","ssf","thai_esg","ltf","provident_fund"];
+  const persAssets = assets.filter(a => !TAX_CODES.includes(a.assetType ?? ""));
+  const taxAssets  = assets.filter(a =>  TAX_CODES.includes(a.assetType ?? ""));
+  const persTotal  = persAssets.reduce((s, a) => s + a.currentValue, 0);
+  const taxTotal   = taxAssets.reduce((s, a)  => s + a.currentValue, 0);
+  const grandTotal = persTotal + taxTotal;
+
+  const portfolioReturn = persTotal > 0
+    ? persAssets.reduce((s, a) => s + a.currentValue * (a.expectedReturn ?? 0), 0) / persTotal
     : null;
+  const effectiveReturn = portfolioReturn && portfolioReturn > 0 ? portfolioReturn : null;
+
+  const investRatio = annualIncome > 0 ? totalTaxInvested / annualIncome : 0;
+  const netWorth    = grandTotal + profile.emergencyFundAmount - profile.totalDebt;
+
+  // Retirement projection
+  const yearsToRetire = plan?.currentAge && plan?.retirementAge
+    ? Math.max(0, plan.retirementAge - plan.currentAge) : null;
+  let retPct: number | null = null;
+  let retProjected: number | null = null;
+  let retCorpus: number | null = null;
+  if (plan?.currentAge && plan?.retirementAge && plan?.monthlyRetirementNeeds && yearsToRetire && yearsToRetire > 0) {
+    const ret  = ((plan.expectedReturn ?? effectiveReturn ?? 7)) / 100;
+    const pv   = plan.currentSavings ?? 0;
+    const pmt  = plan.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
+    const proj = calcFV(pv, ret, yearsToRetire, pmt);
+    const realNeeds = plan.monthlyRetirementNeeds * Math.pow(1.03, yearsToRetire);
+    const corpus    = (realNeeds * 12) / 0.04;
+    retPct       = corpus > 0 ? Math.min(100, Math.round((proj / corpus) * 100)) : 100;
+    retProjected = proj;
+    retCorpus    = corpus;
+  }
+
+  // Health signals
+  const efHealth:  Health = efMonths === null ? "neutral" : efMonths >= 6 ? "good" : efMonths >= 3 ? "warn" : "bad";
+  const dtiHealth: Health = dti === 0 ? "good" : dti < 0.30 ? "good" : dti < 0.50 ? "warn" : "bad";
+  const savHealth: Health = savingsRate >= 0.20 ? "good" : savingsRate >= 0.10 ? "warn" : "bad";
+  const retHealth: Health = retPct === null ? "neutral" : retPct >= 80 ? "good" : retPct >= 50 ? "warn" : "bad";
+  const taxHealth: Health = totalTaxRoom < 5_000 ? "good" : totalTaxRoom < 50_000 ? "warn" : "bad";
+  const riskLabel = risk?.riskLevel === "conservative" ? "อนุรักษ์นิยม"
+    : risk?.riskLevel === "moderate" ? "สมดุล" : risk?.riskLevel === "aggressive" ? "เชิงรุก" : null;
+
+  // Composite score (0–100)
+  let score = 0;
+  if (efHealth  === "good") score += 25; else if (efHealth  === "warn") score += 12;
+  if (dtiHealth === "good") score += 20; else if (dtiHealth === "warn") score += 10;
+  if (savHealth === "good") score += 20; else if (savHealth === "warn") score += 10;
+  if (investRatio >= 0.15)  score += 15; else if (investRatio > 0) score += 7;
+  if (retHealth  === "good") score += 15; else if (retHealth === "warn") score += 7;
+  if (risk) score += 5;
+  const scoreHealth: Health = score >= 75 ? "good" : score >= 45 ? "warn" : "bad";
+  const scoreLabel = score >= 75 ? "สุขภาพการเงินดี" : score >= 45 ? "พอใช้ได้" : "ต้องปรับปรุง";
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-6 max-w-5xl">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <MapPin className="h-6 w-6 text-primary" />แผนการเงินส่วนตัว
-        </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          วิเคราะห์จากข้อมูล My Data ของคุณ — {doneCount}/{steps.length} ขั้นตอนเสร็จแล้ว
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <BarChart3 className="h-6 w-6 text-primary" />
+            Financial Analysis
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            วิเคราะห์สถานะการเงินปัจจุบัน · คำนวณจากข้อมูล My Data
+          </p>
+        </div>
+        <Link href="/my-data" className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0 mt-1">
+          อัปเดตข้อมูล <ChevronRight className="h-3 w-3" />
+        </Link>
       </div>
 
-      <div className="flex items-center gap-3">
-        <Progress value={(doneCount / Math.max(steps.length, 1)) * 100} className="h-2 flex-1" />
-        <span className="text-sm font-semibold shrink-0">{doneCount}/{steps.length}</span>
+      {/* KPI Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* Score card */}
+        <Card className={cn("col-span-2 sm:col-span-1 border", HEALTH_BG[scoreHealth])}>
+          <CardContent className="pt-4 pb-4 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Activity className={cn("h-3.5 w-3.5", HEALTH_COLOR[scoreHealth])} />
+              คะแนนสุขภาพ
+            </div>
+            <div className="flex items-end gap-2">
+              <p className={cn("text-3xl font-black tabular-nums leading-none", HEALTH_COLOR[scoreHealth])}>{score}</p>
+              <p className="text-muted-foreground text-xs mb-0.5">/100</p>
+            </div>
+            <p className={cn("text-xs font-semibold", HEALTH_COLOR[scoreHealth])}>{scoreLabel}</p>
+            <Progress value={score} className="h-1.5 mt-1" />
+          </CardContent>
+        </Card>
+
+        <KpiCard icon={Wallet}      label="รายได้สุทธิ/เดือน" value={thb(monthlyIncome)}
+          sub={`ปีละ ${thbM(annualIncome)}`} health="neutral" />
+        <KpiCard icon={PiggyBank}   label="เงินออมได้/เดือน"   value={thb(Math.max(0, monthlyFree))}
+          sub={`${(savingsRate * 100).toFixed(0)}% ของรายได้`}  health={savHealth}
+          link={{ href: "/my-data?tab=income", label: "แก้ไข" }} />
+        <KpiCard icon={ShieldCheck} label="กองทุนฉุกเฉิน" value={efMonths !== null ? `${efMonths.toFixed(1)} เดือน` : "—"}
+          sub={`${thb(profile.emergencyFundAmount)} / เป้า ${thb(efTarget)}`} health={efHealth}
+          link={{ href: "/my-data?tab=debts", label: "อัปเดต" }} />
+        <KpiCard icon={Scale}       label="DTI (หนี้/รายได้)"  value={`${(dti * 100).toFixed(0)}%`}
+          sub="เป้า < 30%" health={dtiHealth} />
+        <KpiCard icon={Target}      label="สินทรัพย์สุทธิ"     value={thbM(Math.abs(netWorth))}
+          sub={netWorth >= 0 ? `+${thbM(netWorth)} สินทรัพย์ > หนี้` : "ติดลบ — หนี้เกินสินทรัพย์"} health={netWorth >= 0 ? "good" : "bad"} />
       </div>
 
-      {/* Missing Data Banner */}
-      <MissingDataBanner items={missingItems} />
-
-      <div className="grid lg:grid-cols-[320px_1fr] gap-6 items-start">
-        {/* ── Left: Situation panel ── */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2 pt-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Banknote className="h-4 w-4 text-blue-500" />กระแสเงินสด/เดือน
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4">
-              <Row label="รายได้" value={thb(monthlyIncome)} />
-              <Row label="ค่าใช้จ่าย" value={`−${thb(profile.monthlyExpenses)}`} />
-              <Row label="ผ่อนหนี้" value={`−${thb(profile.monthlyDebtPayment)}`} />
-              <Row label="เหลือลงทุนได้" value={thb(Math.max(0, monthlyFree))} ok={monthlyFree > 0} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2 pt-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Target className="h-4 w-4 text-emerald-500" />เงินสำรอง & หนี้
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4">
-              <Row label="กองทุนฉุกเฉิน" value={thb(profile.emergencyFundAmount)}
-                sub={efMonths !== null ? `${efMonths.toFixed(1)} เดือน (เป้า 6)` : undefined}
-                ok={efMonths !== null && efMonths >= 6} />
-              <Row label="หนี้สินรวม" value={profile.totalDebt > 0 ? thb(profile.totalDebt) : "ไม่มีหนี้ ✓"} ok={profile.totalDebt === 0} />
-              <Row label="DTI (ผ่อน/รายได้)"
-                value={monthlyIncome > 0 ? `${Math.round((profile.monthlyDebtPayment / monthlyIncome) * 100)}%` : "—"}
-                sub="เป้า < 30%"
-                ok={monthlyIncome > 0 && profile.monthlyDebtPayment / monthlyIncome < 0.3} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2 pt-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-purple-500" />การลงทุน
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4">
-              <Row label="รวมลงทุน/ปี" value={thb(totalInvested)}
-                sub={annualIncome > 0 ? `${Math.round((totalInvested / annualIncome) * 100)}% ของรายได้ (เป้า 15%)` : undefined}
-                ok={annualIncome > 0 && totalInvested / annualIncome >= 0.15} />
-              <Row label="SSF" value={thb(profile.ssfAmount)} />
-              <Row label="RMF" value={thb(profile.rmfAmount)} />
-              <Row label="Thai ESG" value={thb(profile.thaiEsgAmount)} />
-              {risk && (
-                <Row label="ระดับความเสี่ยง"
-                  value={risk.riskLevel === "conservative" ? "ระมัดระวัง" : risk.riskLevel === "moderate" ? "สมดุล" : "เชิงรุก"} />
+      {/* ── Tabs ── */}
+      <div className="border-b">
+        <div className="flex gap-0 overflow-x-auto">
+          {([
+            { key: "overview",    label: "ภาพรวม",        icon: Activity },
+            { key: "cashflow",    label: "กระแสเงินสด",   icon: Banknote },
+            { key: "investment",  label: "การลงทุน",       icon: TrendingUp },
+            { key: "retirement",  label: "เกษียณ",         icon: Target },
+          ] as const).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
+                activeTab === key
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/40"
               )}
-            </CardContent>
-          </Card>
-
-          {plan?.currentAge ? (
-            <Card>
-              <CardHeader className="pb-2 pt-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-indigo-500" />แผนเกษียณ
-                  </CardTitle>
-                  <Link href="/my-data?tab=retirement" className="text-xs text-primary hover:underline">แก้ไข →</Link>
-                </div>
-              </CardHeader>
-              <CardContent className="pb-4">
-                <Row label="อายุปัจจุบัน" value={`${plan.currentAge} ปี`} />
-                <Row label="เกษียณอายุ" value={`${plan.retirementAge} ปี`}
-                  sub={yearsToRetire !== null ? `อีก ${yearsToRetire} ปี` : undefined} />
-                <Row label="ค่าใช้จ่าย/เดือน (หลังเกษียณ)"
-                  value={plan.monthlyRetirementNeeds ? thb(plan.monthlyRetirementNeeds) : "—"} />
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="border-dashed">
-              <CardContent className="pt-4 pb-4 text-center space-y-2">
-                <AlertCircle className="h-6 w-6 text-amber-500 mx-auto" />
-                <p className="text-sm text-muted-foreground">ยังไม่มีข้อมูลแผนเกษียณ</p>
-                <Link href="/my-data?tab=retirement">
-                  <Button size="sm" variant="outline">กำหนดแผนเกษียณ →</Button>
-                </Link>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* ── Right: Action Plan ── */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold">แผนแนะนำ — ทำตามลำดับนี้</h2>
-            <span className="text-xs text-muted-foreground">คลิกที่แต่ละขั้นเพื่อดูรายละเอียด</span>
-          </div>
-          {steps.map((step, idx) => (
-            <StepCard key={step.id} step={step} idx={idx + 1} />
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              {label}
+            </button>
           ))}
-          <div className="flex items-start gap-2 text-xs text-muted-foreground pt-2 border-t">
-            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <p>แผนนี้คำนวณจากข้อมูลที่คุณกรอกใน My Data อัปเดตข้อมูลให้ครบถ้วนเพื่อให้คำแนะนำแม่นยำยิ่งขึ้น</p>
-          </div>
         </div>
       </div>
+
+      {/* ── Tab: กระแสเงินสด ── */}
+      {activeTab === "cashflow" && (
+        <div className="grid lg:grid-cols-2 gap-5">
+        {/* ── Cash Flow ── */}
+        <Card>
+          <CardHeader className="pb-1 pt-4">
+            <CardTitle className="text-sm">
+              <SectionHeader icon={Banknote} title="กระแสเงินสด (Cash Flow)" color="text-blue-600" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-1.5 text-xs font-semibold text-muted-foreground">รายการ</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">จำนวน/เดือน</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground hidden sm:table-cell">% รายได้</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">เงินเดือน</td>
+                  <td className="py-2 text-xs font-semibold text-right tabular-nums">{thb(profile.annualSalary / 12)}</td>
+                  <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{pct(profile.annualSalary, annualIncome)}</td>
+                  <td className="py-2 text-right"><HealthBadge health="good" /></td>
+                </tr>
+                {profile.bonus > 0 && (
+                  <tr>
+                    <td className="py-2 text-xs text-muted-foreground">โบนัส (เฉลี่ย/เดือน)</td>
+                    <td className="py-2 text-xs font-medium text-right tabular-nums">{thb(profile.bonus / 12)}</td>
+                    <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{pct(profile.bonus, annualIncome)}</td>
+                    <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
+                  </tr>
+                )}
+                {profile.otherIncome > 0 && (
+                  <tr>
+                    <td className="py-2 text-xs text-muted-foreground">รายได้อื่น (เฉลี่ย/เดือน)</td>
+                    <td className="py-2 text-xs font-medium text-right tabular-nums">{thb(profile.otherIncome / 12)}</td>
+                    <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{pct(profile.otherIncome, annualIncome)}</td>
+                    <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
+                  </tr>
+                )}
+                <tr className="bg-muted/20">
+                  <td className="py-2 text-xs font-semibold">รายได้รวม</td>
+                  <td className="py-2 text-xs font-bold text-right tabular-nums">{thb(monthlyIncome)}</td>
+                  <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">100%</td>
+                  <td className="py-2 text-right"></td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">รายจ่าย</td>
+                  <td className={cn("py-2 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[expenseRatio > 0.70 ? "bad" : expenseRatio > 0.50 ? "warn" : "good"])}>
+                    {thb(profile.monthlyExpenses)}
+                  </td>
+                  <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{(expenseRatio * 100).toFixed(0)}%</td>
+                  <td className="py-2 text-right"><HealthBadge health={expenseRatio > 0.70 ? "bad" : expenseRatio > 0.50 ? "warn" : "good"} /></td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">ผ่อนหนี้</td>
+                  <td className={cn("py-2 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[dtiHealth])}>
+                    {profile.monthlyDebtPayment > 0 ? thb(profile.monthlyDebtPayment) : "—"}
+                  </td>
+                  <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">
+                    {profile.monthlyDebtPayment > 0 ? `${(dti * 100).toFixed(0)}%` : "0%"}
+                  </td>
+                  <td className="py-2 text-right"><HealthBadge health={dtiHealth} /></td>
+                </tr>
+                <tr className={cn("border-t-2", HEALTH_BG[savHealth])}>
+                  <td className="py-2.5 text-xs font-bold">เงินคงเหลือ / ออม</td>
+                  <td className={cn("py-2.5 text-sm font-black text-right tabular-nums", HEALTH_COLOR[savHealth])}>
+                    {monthlyFree >= 0 ? thb(monthlyFree) : `−${thb(-monthlyFree)}`}
+                  </td>
+                  <td className={cn("py-2.5 text-xs font-semibold text-right hidden sm:table-cell", HEALTH_COLOR[savHealth])}>
+                    {(savingsRate * 100).toFixed(0)}%{savingsRate >= 0.20 ? " 🎯" : ""}
+                  </td>
+                  <td className="py-2.5 text-right"><HealthBadge health={savHealth} /></td>
+                </tr>
+              </tbody>
+            </table>
+            {/* stacked bar */}
+            {monthlyIncome > 0 && (
+              <div className="mt-3 pt-2 border-t space-y-1">
+                <div className="h-2.5 rounded-full overflow-hidden flex bg-muted">
+                  {[
+                    { v: profile.monthlyExpenses,    color: "bg-red-400" },
+                    { v: profile.monthlyDebtPayment, color: "bg-orange-400" },
+                    { v: Math.max(0, monthlyFree),   color: "bg-emerald-400" },
+                  ].map((item, i) => item.v > 0 ? (
+                    <div key={i} className={cn("h-full", item.color)} style={{ width: `${(item.v / monthlyIncome) * 100}%` }} />
+                  ) : null)}
+                </div>
+                <div className="flex gap-3 flex-wrap">
+                  {[["รายจ่าย","bg-red-400"],["ผ่อนหนี้","bg-orange-400"],["ออม","bg-emerald-400"]].map(([l,c]) => (
+                    <span key={l} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className={cn("inline-block w-2 h-2 rounded-sm", c)} />{l}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Debt & Emergency ── */}
+        <Card>
+          <CardHeader className="pb-1 pt-4">
+            <CardTitle className="text-sm">
+              <SectionHeader icon={AlertTriangle} title="ภาระหนี้ & เงินสำรอง" color="text-amber-600" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-1.5 text-xs font-semibold text-muted-foreground">รายการ</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">ค่า</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground hidden sm:table-cell">เป้าหมาย</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">กองทุนฉุกเฉิน</td>
+                  <td className={cn("py-2 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[efHealth])}>
+                    {thb(profile.emergencyFundAmount)}
+                  </td>
+                  <td className="py-2 text-xs text-muted-foreground text-right hidden sm:table-cell">
+                    {efMonths !== null ? `${efMonths.toFixed(1)}/6 เดือน` : "—"}
+                  </td>
+                  <td className="py-2 text-right"><HealthBadge health={efHealth} /></td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">เป้าหมายสำรอง (6 เดือน)</td>
+                  <td className="py-2 text-xs font-medium text-right tabular-nums text-muted-foreground">{thb(efTarget)}</td>
+                  <td className="py-2 text-xs text-muted-foreground text-right hidden sm:table-cell">
+                    {efMonths !== null
+                      ? <div className="inline-flex w-20 h-1.5 bg-muted rounded-full overflow-hidden ml-auto">
+                          <div className={cn("h-full rounded-full", efHealth === "good" ? "bg-emerald-500" : efHealth === "warn" ? "bg-amber-400" : "bg-red-400")}
+                            style={{ width: `${Math.min(100, ((efMonths ?? 0) / 6) * 100)}%` }} />
+                        </div>
+                      : null}
+                  </td>
+                  <td className="py-2 text-right"></td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">หนี้สินรวม</td>
+                  <td className={cn("py-2 text-xs font-semibold text-right tabular-nums",
+                    HEALTH_COLOR[profile.totalDebt === 0 ? "good" : profile.totalDebt > annualIncome * 3 ? "bad" : "warn"])}>
+                    {profile.totalDebt > 0 ? thb(profile.totalDebt) : "ไม่มีหนี้ ✓"}
+                  </td>
+                  <td className="py-2 text-xs text-muted-foreground text-right hidden sm:table-cell">
+                    {profile.totalDebt > 0 ? `< ${thbM(annualIncome * 3)}` : ""}
+                  </td>
+                  <td className="py-2 text-right">
+                    <HealthBadge health={profile.totalDebt === 0 ? "good" : profile.totalDebt > annualIncome * 3 ? "bad" : "warn"} />
+                  </td>
+                </tr>
+                {profile.debtInterestRate > 0 && (
+                  <tr>
+                    <td className="py-2 text-xs text-muted-foreground">ดอกเบี้ยหนี้</td>
+                    <td className="py-2 text-xs font-medium text-right tabular-nums">{profile.debtInterestRate.toFixed(1)}%/ปี</td>
+                    <td className="py-2 text-xs text-muted-foreground text-right hidden sm:table-cell">
+                      ≈ {thb(profile.totalDebt * profile.debtInterestRate / 100)}/ปี
+                    </td>
+                    <td className="py-2 text-right">
+                      <HealthBadge health={effectiveReturn ? (effectiveReturn > profile.debtInterestRate ? "good" : "bad") : "warn"} />
+                    </td>
+                  </tr>
+                )}
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">DTI (ผ่อน/รายได้)</td>
+                  <td className={cn("py-2 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[dtiHealth])}>
+                    {dti > 0 ? `${(dti * 100).toFixed(1)}%` : "0% ✓"}
+                  </td>
+                  <td className="py-2 text-xs text-muted-foreground text-right hidden sm:table-cell">{"< 30%"}</td>
+                  <td className="py-2 text-right"><HealthBadge health={dtiHealth} /></td>
+                </tr>
+                {profile.totalDebt > 0 && profile.monthlyDebtPayment > 0 && (
+                  <tr>
+                    <td className="py-2 text-xs text-muted-foreground">คาดปลดหนี้ (ประมาณ)</td>
+                    <td className="py-2 text-xs font-medium text-right tabular-nums text-muted-foreground">
+                      {(() => { const mo = Math.ceil(profile.totalDebt / profile.monthlyDebtPayment); return mo <= 120 ? `${mo} เดือน` : `${(mo/12).toFixed(0)} ปี`; })()}
+                    </td>
+                    <td className="py-2 text-xs text-muted-foreground text-right hidden sm:table-cell">ไม่รวมดอกเบี้ย</td>
+                    <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {effectiveReturn !== null && profile.debtInterestRate > 0 && (
+              <div className={cn(
+                "mt-3 rounded-lg px-3 py-2 text-xs font-medium border flex items-center gap-2",
+                effectiveReturn > profile.debtInterestRate
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                  : "bg-red-50 border-red-200 text-red-600"
+              )}>
+                {effectiveReturn > profile.debtInterestRate
+                  ? <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+                  : <TrendingDown className="h-3.5 w-3.5 shrink-0" />}
+                {effectiveReturn > profile.debtInterestRate
+                  ? `ผลตอบแทนพอร์ต ${effectiveReturn.toFixed(1)}% > ดอกเบี้ยหนี้ ${profile.debtInterestRate.toFixed(1)}% — การลงทุนคุ้มค่ากว่า`
+                  : `ดอกเบี้ยหนี้ ${profile.debtInterestRate.toFixed(1)}% > ผลตอบแทน ${effectiveReturn.toFixed(1)}% — ควรเน้นปิดหนี้ก่อน`}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+      )}
+
+      {/* ── Tab: การลงทุน ── */}
+      {activeTab === "investment" && (
+        <div className="grid lg:grid-cols-2 gap-5">
+        {/* ── Portfolio / Investment ── */}
+        <Card>
+          <CardHeader className="pb-1 pt-4">
+            <CardTitle className="text-sm">
+              <SectionHeader icon={TrendingUp} title="การลงทุน & พอร์ตโฟลิโอ" color="text-emerald-600" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-1.5 text-xs font-semibold text-muted-foreground">รายการ</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">มูลค่า</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground hidden sm:table-cell">สัดส่วน</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {grandTotal > 0 ? (
+                  <>
+                    {persTotal > 0 && (
+                      <tr>
+                        <td className="py-2 text-xs text-muted-foreground">พอร์ตส่วนตัว</td>
+                        <td className="py-2 text-xs font-semibold text-right tabular-nums">{thbM(persTotal)}</td>
+                        <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{pct(persTotal, grandTotal)}</td>
+                        <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
+                      </tr>
+                    )}
+                    {taxTotal > 0 && (
+                      <tr>
+                        <td className="py-2 text-xs text-muted-foreground">กองทุนภาษี (NAV)</td>
+                        <td className="py-2 text-xs font-semibold text-right tabular-nums">{thbM(taxTotal)}</td>
+                        <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{pct(taxTotal, grandTotal)}</td>
+                        <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
+                      </tr>
+                    )}
+                    <tr className="bg-muted/20">
+                      <td className="py-2 text-xs font-bold">พอร์ตรวม</td>
+                      <td className="py-2 text-sm font-black text-right tabular-nums text-emerald-600">{thbM(grandTotal)}</td>
+                      <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">100%</td>
+                      <td className="py-2 text-right"></td>
+                    </tr>
+                  </>
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="py-3 text-xs text-center text-muted-foreground">
+                      ยังไม่มีข้อมูลสินทรัพย์ —{" "}
+                      <Link href="/my-data" className="text-primary hover:underline">เพิ่มข้อมูล</Link>
+                    </td>
+                  </tr>
+                )}
+                {effectiveReturn !== null && (
+                  <tr>
+                    <td className="py-2 text-xs text-muted-foreground">ผลตอบแทนพอร์ตเฉลี่ย</td>
+                    <td className="py-2 text-xs font-semibold text-right tabular-nums text-emerald-600">~{effectiveReturn.toFixed(1)}%/ปี</td>
+                    <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">weighted avg</td>
+                    <td className="py-2 text-right"><HealthBadge health="good" /></td>
+                  </tr>
+                )}
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">ลงทุนกองทุนภาษี/ปี</td>
+                  <td className={cn("py-2 text-xs font-semibold text-right tabular-nums",
+                    HEALTH_COLOR[investRatio >= 0.15 ? "good" : investRatio > 0 ? "warn" : "neutral"])}>
+                    {thb(totalTaxInvested)}
+                  </td>
+                  <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">
+                    {(investRatio * 100).toFixed(0)}% / เป้า 15%
+                  </td>
+                  <td className="py-2 text-right">
+                    <HealthBadge health={investRatio >= 0.15 ? "good" : investRatio > 0 ? "warn" : "neutral"} />
+                  </td>
+                </tr>
+                {riskLabel && (
+                  <tr>
+                    <td className="py-2 text-xs text-muted-foreground">ระดับความเสี่ยง</td>
+                    <td className="py-2 text-xs font-medium text-right">{riskLabel}</td>
+                    <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">
+                      {risk?.riskLevel === "conservative" ? "หนี้ 70% / หุ้น 30%"
+                        : risk?.riskLevel === "moderate" ? "หุ้น 50% / หนี้ 35%"
+                        : "หุ้น 80% / ทางเลือก 20%"}
+                    </td>
+                    <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {assets.length > 0 && (
+              <div className="mt-3 pt-2 border-t">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                  สินทรัพย์ (top {Math.min(assets.length, 5)})
+                </p>
+                <table className="w-full">
+                  <tbody className="divide-y divide-border/40">
+                    {assets.slice(0, 5).map(a => (
+                      <tr key={a.id}>
+                        <td className="py-1 text-xs text-muted-foreground truncate max-w-0">{a.assetType ?? "—"}</td>
+                        <td className="py-1 text-xs font-medium text-right tabular-nums shrink-0">{thbM(a.currentValue)}</td>
+                        <td className="py-1 text-xs text-right text-muted-foreground shrink-0 pl-2 hidden sm:table-cell">
+                          {grandTotal > 0 ? pct(a.currentValue, grandTotal) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {assets.length > 5 && (
+                  <Link href="/my-data" className="text-[10px] text-primary hover:underline mt-1 block">
+                    ดูทั้งหมด {assets.length} รายการ →
+                  </Link>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Tax Deduction ── */}
+        <Card>
+          <CardHeader className="pb-1 pt-4">
+            <CardTitle className="text-sm">
+              <SectionHeader icon={CheckCircle2} title="การลดหย่อนภาษี" color="text-violet-600" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-1.5 text-xs font-semibold text-muted-foreground">สิทธิ์ลดหย่อน</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">ใช้แล้ว</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground hidden sm:table-cell">วงเงิน</th>
+                  <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">% ใช้</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {TAX_FUNDS.map(f => {
+                  const fpct = f.cap > 0 ? Math.min(100, (f.val / f.cap) * 100) : 0;
+                  const fh: Health = fpct >= 100 ? "good" : fpct > 0 ? "warn" : "neutral";
+                  return (
+                    <tr key={f.label}>
+                      <td className="py-2 text-xs text-muted-foreground">{f.label}</td>
+                      <td className={cn("py-2 text-xs font-medium text-right tabular-nums", fpct > 0 ? "text-foreground" : "text-muted-foreground/50")}>
+                        {f.val > 0 ? thb(f.val) : "—"}
+                      </td>
+                      <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{thb(f.cap)}</td>
+                      <td className="py-2 text-right">
+                        <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", HEALTH_BG[fh], HEALTH_COLOR[fh])}>
+                          {fpct.toFixed(0)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-muted/20">
+                  <td className="py-2.5 text-xs font-bold">รวม</td>
+                  <td className={cn("py-2.5 text-xs font-bold text-right tabular-nums", HEALTH_COLOR[taxHealth])}>
+                    {thb(totalTaxInvested)}
+                  </td>
+                  <td className="py-2.5 text-xs text-right text-muted-foreground hidden sm:table-cell">
+                    {totalTaxRoom > 0 ? `เหลือ ${thb(totalTaxRoom)}` : "ใช้ครบแล้ว ✓"}
+                  </td>
+                  <td className="py-2.5 text-right"><HealthBadge health={taxHealth} /></td>
+                </tr>
+              </tfoot>
+            </table>
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                Marginal rate: <span className="font-semibold text-foreground">{(marginalRate * 100).toFixed(0)}%</span>
+                {totalTaxRoom > 0 && marginalRate > 0 && (
+                  <> · ประหยัดได้อีก <span className="font-semibold text-violet-600">{thb(taxSaving)}/ปี</span></>
+                )}
+              </p>
+              <Link href="/tax" className="text-xs text-primary hover:underline flex items-center gap-0.5">
+                คำนวณภาษี <ChevronRight className="h-3 w-3" />
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      )}
+
+      {/* ── Tab: เกษียณ ── */}
+      {activeTab === "retirement" && (
+        <div className="space-y-5">
+      {/* ── Retirement Projection ── */}
+      <Card>
+        <CardHeader className="pb-1 pt-4">
+          <CardTitle className="text-sm flex items-center justify-between">
+            <SectionHeader icon={Target} title="การฉายภาพเกษียณ (Retirement Projection)" color="text-indigo-600" />
+            <Link href="/goals" className="text-xs text-primary hover:underline -mt-3">แก้ไขข้อมูล</Link>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pb-4">
+          {plan?.currentAge ? (
+            <div className="space-y-4">
+              {/* Main retirement table */}
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 text-xs font-semibold text-muted-foreground w-[40%]">รายการ</th>
+                      <th className="text-right py-2 text-xs font-semibold text-muted-foreground">ข้อมูล</th>
+                      <th className="text-right py-2 text-xs font-semibold text-muted-foreground">หมายเหตุ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    <tr>
+                      <td className="py-2.5 text-xs text-muted-foreground">อายุปัจจุบัน</td>
+                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">{plan.currentAge} ปี</td>
+                      <td className="py-2.5 text-xs text-muted-foreground text-right"></td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 text-xs text-muted-foreground">อายุเกษียณเป้า</td>
+                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">{plan.retirementAge} ปี</td>
+                      <td className="py-2.5 text-xs text-muted-foreground text-right">
+                        {yearsToRetire !== null ? `อีก ${yearsToRetire} ปี` : ""}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 text-xs text-muted-foreground">ค่าใช้จ่ายหลังเกษียณ</td>
+                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">
+                        {plan.monthlyRetirementNeeds ? thb(plan.monthlyRetirementNeeds) + "/เดือน" : "—"}
+                      </td>
+                      <td className="py-2.5 text-xs text-muted-foreground text-right">
+                        {yearsToRetire && plan.monthlyRetirementNeeds
+                          ? `ปรับเงินเฟ้อ 3%: ${thb(Math.round(plan.monthlyRetirementNeeds * Math.pow(1.03, yearsToRetire)))}/เดือน`
+                          : ""}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 text-xs text-muted-foreground">ผลตอบแทนที่คาดหวัง</td>
+                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">
+                        {plan.expectedReturn ?? effectiveReturn ?? 7}%/ปี
+                      </td>
+                      <td className="py-2.5 text-xs text-muted-foreground text-right">
+                        {effectiveReturn ? "จาก Portfolio" : "ค่าเริ่มต้น"}
+                      </td>
+                    </tr>
+                    {retCorpus !== null && (
+                      <tr>
+                        <td className="py-2.5 text-xs text-muted-foreground">เงินที่ต้องการ (4% Rule)</td>
+                        <td className="py-2.5 text-xs font-semibold text-right tabular-nums text-indigo-600">{thbM(retCorpus)}</td>
+                        <td className="py-2.5 text-xs text-muted-foreground text-right">corpus เป้าหมาย</td>
+                      </tr>
+                    )}
+                    {retProjected !== null && (
+                      <tr>
+                        <td className="py-2.5 text-xs text-muted-foreground">คาดการณ์ ณ วันนี้</td>
+                        <td className={cn("py-2.5 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[retHealth])}>
+                          {thbM(retProjected)}
+                        </td>
+                        <td className="py-2.5 text-right">
+                          <span className={cn("text-xs font-bold", HEALTH_COLOR[retHealth])}>{retPct}% ของเป้า</span>
+                        </td>
+                      </tr>
+                    )}
+                    {retCorpus !== null && retProjected !== null && (
+                      <tr className="bg-muted/30">
+                        <td className="py-2.5 text-xs font-semibold">
+                          {retProjected >= retCorpus ? "เกินเป้าหมาย" : "ยังขาดอีก"}
+                        </td>
+                        <td className={cn("py-2.5 text-sm font-bold text-right tabular-nums",
+                          retProjected >= retCorpus ? "text-emerald-600" : "text-red-600")}>
+                          {thbM(Math.abs(retCorpus - retProjected))}
+                        </td>
+                        <td className="py-2.5 text-xs text-muted-foreground text-right">
+                          {retProjected >= retCorpus ? "✓ อยู่ในเส้นทาง" : "ต้องเพิ่มการออม"}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {/* Progress bar */}
+              {retPct !== null && (
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-muted-foreground font-medium">ความคืบหน้าสู่เป้าหมายเกษียณ</span>
+                    <span className={cn("font-bold", HEALTH_COLOR[retHealth])}>{retPct}%</span>
+                  </div>
+                  <div className="h-3 bg-muted rounded-full overflow-hidden">
+                    <div className={cn("h-full rounded-full transition-all",
+                      retHealth === "good" ? "bg-emerald-500" : retHealth === "warn" ? "bg-amber-400" : "bg-red-400"
+                    )} style={{ width: `${retPct}%` }} />
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-2">
+                    {retHealth === "good"
+                      ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /><span className="text-xs text-emerald-700 font-medium">อยู่ในเส้นทาง ✓</span></>
+                      : retHealth === "warn"
+                      ? <><AlertCircle className="h-3.5 w-3.5 text-amber-500" /><span className="text-xs text-amber-700 font-medium">ต้องเพิ่มการออมเพื่อถึงเป้า</span></>
+                      : <><AlertTriangle className="h-3.5 w-3.5 text-red-500" /><span className="text-xs text-red-600 font-medium">ขาดมาก — ควรทบทวนแผนด่วน</span></>}
+                  </div>
+                </div>
+              )}
+              {/* FIRE Scenarios */}
+              {yearsToRetire !== null && yearsToRetire > 0 && plan.monthlyRetirementNeeds && (
+                <div className="pt-3 border-t">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <Flame className="h-3.5 w-3.5 text-orange-500" />
+                    FIRE Scenarios — 3 สถานการณ์ผลตอบแทน
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-1.5 text-xs font-semibold text-muted-foreground">สถานการณ์</th>
+                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">ผลตอบแทน</th>
+                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground hidden sm:table-cell">เงินที่ต้องการ</th>
+                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">คาดการณ์</th>
+                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">สถานะ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {([
+                          { label: "ระมัดระวัง", rate: 5,  emoji: "🛡️" },
+                          { label: "ฐาน",        rate: Number(plan.expectedReturn ?? effectiveReturn ?? 7), emoji: "⚖️" },
+                          { label: "เชิงรุก",    rate: 10, emoji: "🚀" },
+                        ]).map(({ label, rate, emoji }) => {
+                          const pv2   = plan.currentSavings ?? 0;
+                          const pmt2  = plan.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
+                          const proj2 = calcFV(pv2, rate / 100, yearsToRetire!, pmt2);
+                          const rn2   = plan.monthlyRetirementNeeds! * Math.pow(1.03, yearsToRetire!);
+                          const c2    = (rn2 * 12) / 0.04;
+                          const p2    = c2 > 0 ? Math.min(100, Math.round((proj2 / c2) * 100)) : 100;
+                          const h2: Health = p2 >= 80 ? "good" : p2 >= 50 ? "warn" : "bad";
+                          return (
+                            <tr key={label}>
+                              <td className="py-2 text-xs font-medium">{emoji} {label}</td>
+                              <td className="py-2 text-xs text-right text-muted-foreground tabular-nums">{rate}%/ปี</td>
+                              <td className="py-2 text-xs text-right tabular-nums hidden sm:table-cell">{thbM(c2)}</td>
+                              <td className={cn("py-2 text-xs text-right font-semibold tabular-nums", HEALTH_COLOR[h2])}>{thbM(proj2)}</td>
+                              <td className="py-2 text-right">
+                                <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold", HEALTH_BG[h2], HEALTH_COLOR[h2])}>
+                                  {p2}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 py-2">
+              <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">ยังไม่มีข้อมูลแผนเกษียณ</p>
+                <Link href="/goals" className="text-xs text-primary hover:underline">กรอกข้อมูลเกษียณ →</Link>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      </div>
+      )}
+
+      {/* ── Tab: ภาพรวม ── */}
+      {activeTab === "overview" && (
+        <div className="space-y-5">
+      {/* ── Summary Health Scorecard ── */}
+      <Card className="bg-muted/30">
+        <CardHeader className="pb-1 pt-4">
+          <CardTitle className="text-sm">
+            <SectionHeader icon={Activity} title="สรุป Financial Health Scorecard" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pb-4">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 text-xs font-semibold text-muted-foreground">ตัวชี้วัด</th>
+                  <th className="text-right py-2 text-xs font-semibold text-muted-foreground">ค่าปัจจุบัน</th>
+                  <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden sm:table-cell">เป้าหมาย</th>
+                  <th className="text-right py-2 text-xs font-semibold text-muted-foreground">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {([
+                  { label: "กองทุนฉุกเฉิน",        current: efMonths !== null ? `${efMonths.toFixed(1)} เดือน` : "ไม่มีข้อมูล", target: "≥ 6 เดือน", health: efHealth },
+                  { label: "อัตราการออม",           current: `${(savingsRate * 100).toFixed(0)}%`, target: "≥ 20%", health: savHealth },
+                  { label: "ภาระหนี้ (DTI)",        current: `${(dti * 100).toFixed(0)}%`, target: "< 30%", health: dtiHealth },
+                  { label: "ลงทุน/รายได้ต่อปี",    current: `${(investRatio * 100).toFixed(0)}%`, target: "≥ 15%", health: (investRatio >= 0.15 ? "good" : investRatio > 0 ? "warn" : "bad") as Health },
+                  { label: "ใช้สิทธิ์ลดหย่อนภาษี", current: totalTaxRoom < 5_000 ? "ใช้ครบแล้ว ✓" : `เหลือ ${thb(totalTaxRoom)}`, target: "ใช้สูงสุด", health: taxHealth },
+                  { label: "ความพร้อมเกษียณ",       current: retPct !== null ? `${retPct}%` : "ยังไม่กำหนด", target: "≥ 80%", health: retHealth },
+                ] as { label: string; current: string; target: string; health: Health }[]).map(row => (
+                  <tr key={row.label} className="hover:bg-muted/30 transition-colors">
+                    <td className="py-2.5 text-xs font-medium">{row.label}</td>
+                    <td className={cn("py-2.5 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[row.health])}>{row.current}</td>
+                    <td className="py-2.5 text-xs text-muted-foreground text-right hidden sm:table-cell">{row.target}</td>
+                    <td className="py-2.5 text-right"><HealthBadge health={row.health} /></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-muted/20">
+                  <td colSpan={2} className="py-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Activity className={cn("h-4 w-4", HEALTH_COLOR[scoreHealth])} />
+                      <span className="font-semibold">คะแนนรวม:</span>
+                      <span className={cn("font-black text-base leading-none", HEALTH_COLOR[scoreHealth])}>{score}</span>
+                      <span className="text-muted-foreground">/100 — {scoreLabel}</span>
+                    </div>
+                  </td>
+                  <td colSpan={2} className="py-3 text-right">
+                    <Progress value={score} className="h-2.5 w-32 ml-auto" />
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Budget Allocation 50/30/20 ── */}
+      <Card>
+        <CardHeader className="pb-1 pt-4">
+          <CardTitle className="text-sm">
+            <SectionHeader icon={PiggyBank} title="การจัดสรรงบประมาณ vs หลัก 50/30/20" color="text-teal-600" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pb-4">
+          {(() => {
+            const savingsAmt = Math.max(0, monthlyFree);
+            const needsPct  = monthlyIncome > 0 ? (profile.monthlyExpenses / monthlyIncome) * 100 : 0;
+            const debtPct   = monthlyIncome > 0 ? (profile.monthlyDebtPayment / monthlyIncome) * 100 : 0;
+            const savPct    = monthlyIncome > 0 ? (savingsAmt / monthlyIncome) * 100 : 0;
+            const rows = [
+              { label: "รายจ่ายประจำ (Needs)", actual: needsPct, ideal: 50, value: profile.monthlyExpenses,    color: "bg-blue-500" },
+              { label: "ชำระหนี้ (Debt)",       actual: debtPct,  ideal: 0,  value: profile.monthlyDebtPayment, color: "bg-orange-400" },
+              { label: "ออม & ลงทุน (Savings)", actual: savPct,   ideal: 20, value: savingsAmt,                 color: "bg-emerald-500" },
+            ];
+            return (
+              <div className="space-y-3">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 text-xs font-semibold text-muted-foreground w-[35%]">หมวด</th>
+                        <th className="text-right py-2 text-xs font-semibold text-muted-foreground">สัดส่วนจริง</th>
+                        <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden sm:table-cell">เป้าหมาย</th>
+                        <th className="text-right py-2 text-xs font-semibold text-muted-foreground">จำนวนเงิน</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {rows.map(r => (
+                        <tr key={r.label}>
+                          <td className="py-2.5 text-xs font-medium">{r.label}</td>
+                          <td className={cn("py-2.5 text-xs font-bold text-right tabular-nums",
+                            r.label.includes("ออม")
+                              ? (r.actual >= 20 ? "text-emerald-600" : r.actual >= 10 ? "text-amber-600" : "text-red-600")
+                              : "text-foreground"
+                          )}>{r.actual.toFixed(0)}%</td>
+                          <td className="py-2.5 text-xs text-muted-foreground text-right hidden sm:table-cell">{r.ideal > 0 ? `${r.ideal}%` : "—"}</td>
+                          <td className="py-2.5 text-xs text-right tabular-nums text-muted-foreground">{thb(r.value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Stacked bar */}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">การกระจายรายได้</p>
+                  <div className="h-4 rounded-full overflow-hidden flex bg-muted">
+                    {rows.map(r =>
+                      r.actual > 0 ? (
+                        <div key={r.label}
+                          className={cn("h-full transition-all", r.color)}
+                          style={{ width: `${Math.min(100, r.actual)}%` }}
+                          title={`${r.label}: ${r.actual.toFixed(0)}%`}
+                        />
+                      ) : null
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {rows.map(r => (
+                      <span key={r.label} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <span className={cn("inline-block w-2 h-2 rounded-sm", r.color)} />
+                        {r.label} ({r.actual.toFixed(0)}%)
+                      </span>
+                    ))}
+                  </div>
+                  {savPct < 20 && (
+                    <p className="text-[11px] text-amber-600 font-medium pt-0.5">
+                      💡 เพิ่มการออมอีก {(20 - savPct).toFixed(0)}% ({thb(monthlyIncome * (20 - savPct) / 100)}/เดือน) เพื่อถึงเป้า 20%
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
+
+      {/* ── Wealth Growth Timeline ── */}
+      {(grandTotal > 0 || (plan?.currentSavings ?? 0) > 0) && (
+        <Card>
+          <CardHeader className="pb-1 pt-4">
+            <CardTitle className="text-sm">
+              <SectionHeader icon={TrendingUp} title="การเติบโตของความมั่งคั่ง (Wealth Timeline)" color="text-emerald-600" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            {(() => {
+              const startPV = plan?.currentSavings ?? grandTotal;
+              const monthly = plan?.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
+              const rate    = (plan?.expectedReturn ?? effectiveReturn ?? 7) / 100;
+              const allMilestones = [1, 3, 5, 10, 15, 20, 25, 30];
+              const milestones = allMilestones.filter(y =>
+                yearsToRetire === null || y <= yearsToRetire + 1
+              ).slice(0, 7);
+              return (
+                <div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 text-xs font-semibold text-muted-foreground">ช่วงเวลา</th>
+                          {plan?.currentAge && <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden sm:table-cell">อายุ</th>}
+                          <th className="text-right py-2 text-xs font-semibold text-muted-foreground">คาดการณ์สินทรัพย์</th>
+                          <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden md:table-cell">เติบโต</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        <tr className="bg-muted/20">
+                          <td className="py-2.5 text-xs font-semibold text-muted-foreground">ปัจจุบัน</td>
+                          {plan?.currentAge && <td className="py-2.5 text-xs text-right text-muted-foreground hidden sm:table-cell">{plan.currentAge} ปี</td>}
+                          <td className="py-2.5 text-xs font-bold text-right tabular-nums">{thbM(startPV)}</td>
+                          <td className="py-2.5 text-xs text-right text-muted-foreground hidden md:table-cell">—</td>
+                        </tr>
+                        {milestones.map(y => {
+                          const proj = calcFV(startPV, rate, y, monthly);
+                          const growPct = startPV > 0 ? ((proj / startPV - 1) * 100).toFixed(0) : null;
+                          const isRetYear = yearsToRetire !== null && y === yearsToRetire;
+                          return (
+                            <tr key={y} className={cn(isRetYear ? "bg-indigo-50/50" : "")}>
+                              <td className={cn("py-2.5 text-xs", isRetYear ? "font-semibold" : "")}>
+                                {isRetYear ? "🏁 " : ""}อีก {y} ปี{isRetYear ? " (เกษียณ)" : ""}
+                              </td>
+                              {plan?.currentAge && (
+                                <td className="py-2.5 text-xs text-right text-muted-foreground hidden sm:table-cell">
+                                  {plan.currentAge + y} ปี
+                                </td>
+                              )}
+                              <td className={cn("py-2.5 text-xs text-right font-semibold tabular-nums",
+                                isRetYear ? "text-indigo-600" : retCorpus && proj >= retCorpus ? "text-emerald-600" : "text-foreground"
+                              )}>
+                                {thbM(proj)}
+                              </td>
+                              <td className="py-2.5 text-xs text-right text-emerald-600 hidden md:table-cell">
+                                {growPct ? `+${growPct}%` : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-3">
+                    * คำนวณจากสินทรัพย์ {thbM(startPV)} + ออม {thb(monthly)}/เดือน ที่ผลตอบแทน {plan?.expectedReturn ?? effectiveReturn ?? 7}%/ปี (ทบต้น)
+                  </p>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+      </div>
+      )}
     </div>
   );
 }

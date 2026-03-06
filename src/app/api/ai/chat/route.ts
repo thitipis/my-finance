@@ -12,7 +12,14 @@ const MessageSchema = z.object({
       content: z.string(),
     }),
   ).min(1),
+  responseLength: z.enum(["short", "medium", "long"]).optional(),
 });
+
+const RESPONSE_LENGTH_INSTRUCTIONS: Record<string, string> = {
+  short:  "⚡ ตอบสั้นกระชับ ไม่เกิน 5 ประโยคหรือ 3 bullet ห้ามขยายความเกินความจำเป็น",
+  medium: "📝 ตอบในความยาวปานกลาง อธิบายประเด็นสำคัญ ใช้ตัวเลขและ bullet ได้",
+  long:   "📚 ตอบละเอียดครบถ้วน อธิบายทุกประเด็น พร้อมตัวอย่างตัวเลข และ step-by-step",
+};
 
 const TONE_INSTRUCTIONS: Record<number, string> = {
   1: "ตอบด้วยน้ำเสียงอบอุ่น ให้กำลังใจ และเป็นมิตรมาก ใช้ภาษาง่ายๆ ชวนคุย",
@@ -21,6 +28,11 @@ const TONE_INSTRUCTIONS: Record<number, string> = {
   4: "ตอบตรงประเด็น กระชับ เน้นข้อเท็จจริงและตัวเลข ใช้ภาษาที่ชัดเจน",
   5: "ตอบตรงๆ ไม่อ้อมค้อม ชี้จุดที่ต้องปรับปรุงโดยตรง ไม่จำเป็นต้องปลอบใจ",
 };
+
+// Topic-guard injected into every system prompt
+const FINANCIAL_ONLY_RULE = `
+⚠️ กฎบังคับ: คุณต้องตอบเฉพาะคำถามที่เกี่ยวข้องกับการเงินส่วนตัว การลงทุน ภาษีอากร ประกันภัย และการวางแผนการเงินเท่านั้น
+หากผู้ใช้ถามเรื่องที่ไม่เกี่ยวกับการเงิน ให้ปฏิเสธอย่างสุภาพและขอให้กลับมาถามเรื่องการเงินส่วนตัวแทน ห้ามตอบเรื่องอื่น`.trim();
 
 type FProfile = Awaited<ReturnType<typeof prisma.financialProfile.findUnique>>;
 type FRisk    = Awaited<ReturnType<typeof prisma.riskAssessment.findUnique>>;
@@ -111,6 +123,126 @@ function buildPlanContext(plan: FPlan): string {
   return lines.join("\n");
 }
 
+// ─── Streaming provider helpers ──────────────────────────────────────────────
+
+type StreamCtrl = ReadableStreamDefaultController;
+
+async function streamGemini(
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model: string,
+  token: string,
+  ctrl: StreamCtrl,
+  enc: TextEncoder,
+): Promise<void> {
+  const genAI = new GoogleGenerativeAI(token);
+  const geminiModel = genAI.getGenerativeModel({ model });
+
+  const history = messages.slice(0, -1).map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+  const fullHistory = [
+    { role: "user" as const, parts: [{ text: systemPrompt }] },
+    { role: "model" as const, parts: [{ text: "เข้าใจแล้วครับ พร้อมให้คำแนะนำด้านการเงินส่วนตัวครับ" }] },
+    ...history,
+  ];
+  const chat = geminiModel.startChat({ history: fullHistory });
+  const result = await chat.sendMessageStream(messages[messages.length - 1].content);
+  for await (const chunk of result.stream) {
+    const text = chunk.text();
+    if (text) ctrl.enqueue(enc.encode(text));
+  }
+}
+
+async function streamOpenAI(
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model: string,
+  token: string,
+  ctrl: StreamCtrl,
+  enc: TextEncoder,
+): Promise<void> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+    body: JSON.stringify({
+      model,
+      stream: true,
+      messages: [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))],
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? `OpenAI error ${res.status}`);
+  }
+  const reader = res.body!.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n"); buf = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+      const data = trimmed.slice(6);
+      if (data === "[DONE]") return;
+      try {
+        const json = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+        const content = json.choices?.[0]?.delta?.content;
+        if (content) ctrl.enqueue(enc.encode(content));
+      } catch { /* partial line */ }
+    }
+  }
+}
+
+async function streamOllama(
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  model: string,
+  baseUrl: string,
+  ctrl: StreamCtrl,
+  enc: TextEncoder,
+): Promise<void> {
+  const url = `${baseUrl.replace(/\/$/, "")}/api/chat`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      stream: true,
+      messages: [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))],
+    }),
+  });
+  if (!res.ok) throw new Error(`Ollama error ${res.status} — is the server running at ${baseUrl}?`);
+  const reader = res.body!.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let outBuf = ""; // batch small tokens for smooth streaming
+  const flush = () => { if (outBuf) { ctrl.enqueue(enc.encode(outBuf)); outBuf = ""; } };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) { flush(); break; }
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n"); buf = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const json = JSON.parse(line) as { message?: { content?: string }; done?: boolean };
+        if (json.message?.content) {
+          outBuf += json.message.content;
+          if (outBuf.length >= 15 || /[\n.!?。，,]$/.test(outBuf)) flush();
+        }
+        if (json.done) { flush(); return; }
+      } catch { /* partial line */ }
+    }
+  }
+}
+
+// ─── Route handler ────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -125,7 +257,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.issues }, { status: 400 });
   }
 
-  const { messages } = parsed.data;
+  const { messages, responseLength } = parsed.data;
+  const lengthInstruction = RESPONSE_LENGTH_INSTRUCTIONS[responseLength ?? "medium"];
 
   // Fetch all user context in parallel
   const [adminPromptRow, profile, riskAssessment, aiSettings, financialPlan] = await Promise.all([
@@ -149,41 +282,55 @@ export async function POST(req: NextRequest) {
   const planContext = buildPlanContext(financialPlan);
   const systemPrompt = [
     basePrompt,
+    FINANCIAL_ONLY_RULE,
     `\nสไตล์การตอบ: ${toneInstruction}`,
+    `ความยาวคำตอบ: ${lengthInstruction}`,
     riskInstruction,
     buildFinancialContext(profile, riskAssessment),
     planContext,
     customAddition,
   ].filter(Boolean).join("\n\n").trim();
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  // Resolve provider settings
+  const provider   = aiSettings?.aiProvider    ?? "gemini";
+  const modelName  = aiSettings?.aiModel       ?? "gemini-2.0-flash";
+  const userToken  = aiSettings?.apiToken      ?? null;
+  const ollamaBase = aiSettings?.ollamaBaseUrl ?? process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+  const userId     = session.user.id;
 
-  const history = messages.slice(0, -1).map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+  // Validate tokens before starting the stream (so we can return a proper JSON error)
+  if (provider === "openai" && !userToken) {
+    return NextResponse.json({ error: "กรุณาใส่ OpenAI API Key ในการตั้งค่า AI ก่อนใช้งาน" }, { status: 400 });
+  }
+  if (provider === "gemini" && !userToken && !process.env.GEMINI_API_KEY) {
+    return NextResponse.json({ error: "กรุณาใส่ Gemini API Key ในการตั้งค่า AI" }, { status: 400 });
+  }
 
-  const fullHistory = [
-    { role: "user" as const, parts: [{ text: systemPrompt }] },
-    { role: "model" as const, parts: [{ text: "เข้าใจแล้วครับ พร้อมให้คำแนะนำด้านการเงินส่วนตัวครับ" }] },
-    ...history,
-  ];
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(ctrl) {
+      try {
+        if (provider === "openai") {
+          await streamOpenAI(systemPrompt, messages, modelName, userToken!, ctrl, enc);
+        } else if (provider === "ollama") {
+          await streamOllama(systemPrompt, messages, modelName, ollamaBase, ctrl, enc);
+        } else {
+          const geminiKey = userToken ?? process.env.GEMINI_API_KEY!;
+          await streamGemini(systemPrompt, messages, modelName, geminiKey, ctrl, enc);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI";
+        ctrl.enqueue(enc.encode(`⚠️ ${msg}`));
+      }
+      try {
+        await prisma.usageEvent.create({
+          data: { userId, eventType: "AI_CHAT", metadata: { messageCount: messages.length, toneLevel, provider, model: modelName } },
+        });
+      } catch { /* non-fatal */ }
+      ctrl.close();
+    },
+  });
 
-  const chat = model.startChat({ history: fullHistory });
-  const lastMessage = messages[messages.length - 1].content;
-  const result = await chat.sendMessage(lastMessage);
-  const reply = result.response.text();
-
-  try {
-    await prisma.usageEvent.create({
-      data: {
-        userId: session.user.id,
-        eventType: "AI_CHAT",
-        metadata: { messageCount: messages.length, toneLevel },
-      },
-    });
-  } catch { /* non-fatal */ }
-
-  return NextResponse.json({ reply });
+  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }
+

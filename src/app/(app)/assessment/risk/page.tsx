@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   ClipboardList, CheckCircle2, RefreshCw, Loader2, ChevronLeft, ChevronRight,
-  Shield, TrendingUp, MapPin,
+  MapPin, TrendingUp, Shield,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -101,6 +101,7 @@ export default function RiskAssessmentPage() {
         body: JSON.stringify({ answers: answerArr, score: totalScore, riskLevel: level }),
       });
       setResult({ score: totalScore, level });
+      localStorage.setItem("assessment_risk_done", "1");
     } finally {
       setSaving(false);
     }
@@ -116,6 +117,9 @@ export default function RiskAssessmentPage() {
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-start justify-between gap-4">
         <div>
+          <Link href="/assessment" className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mb-2">
+            <ChevronLeft className="h-3 w-3" /> กลับ Self Assessment
+          </Link>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ClipboardList className="h-6 w-6 text-primary" />ประเมินความเสี่ยงการลงทุน
           </h1>

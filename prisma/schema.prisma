@@ -339,8 +339,9 @@ model FinancialProfile {
   otherInvestAmount  Decimal @default(0) @map("other_invest_amount") @db.Decimal(15, 2)
 
   // Liabilities
-  totalDebt          Decimal @default(0) @map("total_debt") @db.Decimal(15, 2)
-  monthlyDebtPayment Decimal @default(0) @map("monthly_debt_payment") @db.Decimal(15, 2)
+  totalDebt          Decimal  @default(0) @map("total_debt") @db.Decimal(15, 2)
+  monthlyDebtPayment Decimal  @default(0) @map("monthly_debt_payment") @db.Decimal(15, 2)
+  debtInterestRate   Decimal? @default(0) @map("debt_interest_rate") @db.Decimal(5, 2) // weighted avg annual interest %
 
   // Emergency fund & living expenses
   emergencyFundAmount Decimal @default(0) @map("emergency_fund_amount") @db.Decimal(15, 2)
@@ -401,11 +402,16 @@ model TaxResult {
 // ─── AI Settings (per user) ───────────────────────────────────────────────────
 
 model AiSettings {
-  id           String   @id @default(uuid())
-  userId       String   @unique @map("user_id")
-  toneLevel    Int      @default(3) @map("tone_level") // 1=gentle/encouraging, 5=direct/blunt
-  customPrompt String?  @map("custom_prompt") @db.Text
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid())
+  userId        String   @unique @map("user_id")
+  toneLevel     Int      @default(3) @map("tone_level") // 1=gentle/encouraging, 5=direct/blunt
+  customPrompt  String?  @map("custom_prompt") @db.Text
+  // AI provider & model selection
+  aiProvider    String   @default("gemini") @map("ai_provider")  // gemini | openai | ollama
+  aiModel       String   @default("gemini-2.0-flash") @map("ai_model")
+  apiToken      String?  @map("api_token") @db.Text              // user-supplied key (stored server-side only)
+  ollamaBaseUrl String?  @default("http://localhost:11434") @map("ollama_base_url") @db.Text
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -468,18 +474,50 @@ model AdminPrompt {
 // ─── Portfolio Assets ────────────────────────────────────────────────────────
 
 model PortfolioAsset {
-  id           String   @id @default(uuid())
-  userId       String   @map("user_id")
-  name         String
-  group        String   @default("other") // "thai" | "international" | "other"
-  emoji        String   @default("💰")
-  currentValue Decimal  @default(0) @map("current_value") @db.Decimal(15, 2)
-  isBuiltIn    Boolean  @default(false) @map("is_built_in")
-  sortOrder    Int      @default(0) @map("sort_order")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  // Asset classification
+  assetType      String?  @map("asset_type") // "thai_stock" | "thai_fund" | "thai_reit" | "us_etf" | "us_stock" | "crypto" | "gold" | "deposit" | "commodity" | "startup" | "custom"
+  ticker         String?  // specific symbol e.g. "PTT", "VTI", "BTC"
+  name           String   // display name / instrument name
+  group          String   @default("other") // "thai" | "international" | "other"
+  emoji          String   @default("💰")
+  // Valuation
+  currentValue   Decimal  @default(0) @map("current_value") @db.Decimal(15, 2)
+  units          Decimal? @db.Decimal(20, 8)          // number of shares / coins / grams
+  avgCostPerUnit Decimal? @map("avg_cost_per_unit") @db.Decimal(15, 4)  // avg buy price per unit
+  expectedReturn Decimal? @map("expected_return") @db.Decimal(5, 2)     // annual expected return % (e.g. 7.0 = 7%/year)
+  // Meta
+  isBuiltIn      Boolean  @default(false) @map("is_built_in")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+  @@index([assetType])
   @@map("portfolio_assets")
+}
+
+// ─── Instrument Catalog ──────────────────────────────────────────────────────
+
+model InstrumentCatalog {
+  id           String   @id @default(uuid())
+  assetType    String   @map("asset_type") // same codes as PortfolioAsset.assetType
+  ticker       String   // "PTT", "BTC", "VTI", "KMASTER"
+  nameTh       String?  @map("name_th")
+  nameEn       String?  @map("name_en")
+  exchange     String?  // "SET", "MAI", "NYSE", "NASDAQ"
+  provider     String?  // for funds: "Kasikorn", "SCB", "TISCO" ...
+  sector       String?  // for stocks: "Energy", "Banking" ...
+  isActive     Boolean  @default(true) @map("is_active")
+  lastSyncedAt DateTime? @map("last_synced_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([assetType, ticker])
+  @@index([assetType])
+  @@index([ticker])
+  @@map("instrument_catalog")
 }

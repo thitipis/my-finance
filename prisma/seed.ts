@@ -334,17 +334,26 @@ async function main() {
   });
   console.log("  ✅ InsuranceData");
 
-  // AI Settings
+  // AI Settings — default to Ollama (llama3.2) running in Docker
   await prisma.aiSettings.upsert({
     where: { userId: demoUser.id },
-    update: {},
+    update: {
+      toneLevel: 3,
+      aiProvider: "ollama",
+      aiModel: "llama3.2",
+      ollamaBaseUrl: "http://ollama:11434",
+      customPrompt: "ให้เน้นเรื่องการวางแผนเกษียณอายุ และการลดหย่อนภาษีอย่างถูกกฎหมาย",
+    },
     create: {
       userId: demoUser.id,
       toneLevel: 3,
+      aiProvider: "ollama",
+      aiModel: "llama3.2",
+      ollamaBaseUrl: "http://ollama:11434",
       customPrompt: "ให้เน้นเรื่องการวางแผนเกษียณอายุ และการลดหย่อนภาษีอย่างถูกกฎหมาย",
     },
   });
-  console.log("  ✅ AiSettings");
+  console.log("  ✅ AiSettings (Ollama / llama3.2 @ http://ollama:11434)");
 
   // Financial Plan
   const demoPlanData = {
@@ -404,6 +413,124 @@ async function main() {
       console.log("  ⏭  TaxResult (2025) already exists — skipped");
     }
   }
+
+  // ─── Instrument Catalog ─────────────────────────────────────────────────────
+  console.log("\n📊 Seeding instrument catalog...");
+
+  type InstrumentInput = {
+    assetType: string; ticker: string; nameTh?: string; nameEn?: string;
+    exchange?: string; provider?: string; sector?: string;
+  };
+
+  const instruments: InstrumentInput[] = [
+    // ── Thai Stocks (SET) ──────────────────────────────────────────────────
+    { assetType: "thai_stock", ticker: "PTT",    nameTh: "ปตท.",                       nameEn: "PTT Public Company",           exchange: "SET", sector: "Energy" },
+    { assetType: "thai_stock", ticker: "PTTEP",  nameTh: "ปตท.สผ.",                   nameEn: "PTT Exploration & Production", exchange: "SET", sector: "Energy" },
+    { assetType: "thai_stock", ticker: "PTTGC",  nameTh: "พีทีที โกลบอล เคมิคอล",    nameEn: "PTT Global Chemical",          exchange: "SET", sector: "Petrochemical" },
+    { assetType: "thai_stock", ticker: "ADVANC", nameTh: "แอดวานซ์ อินโฟร์ เซอร์วิส",nameEn: "Advanced Info Service",        exchange: "SET", sector: "Telecom" },
+    { assetType: "thai_stock", ticker: "TRUE",   nameTh: "ทรู คอร์ปอเรชั่น",         nameEn: "True Corporation",             exchange: "SET", sector: "Telecom" },
+    { assetType: "thai_stock", ticker: "INTUCH", nameTh: "อินทัช โฮลดิ้งส์",         nameEn: "Intouch Holdings",             exchange: "SET", sector: "Telecom" },
+    { assetType: "thai_stock", ticker: "AOT",    nameTh: "ท่าอากาศยานไทย",           nameEn: "Airports of Thailand",         exchange: "SET", sector: "Transport" },
+    { assetType: "thai_stock", ticker: "KBANK",  nameTh: "กสิกรไทย",                 nameEn: "Kasikornbank",                 exchange: "SET", sector: "Banking" },
+    { assetType: "thai_stock", ticker: "SCB",    nameTh: "ไทยพาณิชย์",               nameEn: "SCB X",                        exchange: "SET", sector: "Banking" },
+    { assetType: "thai_stock", ticker: "BBL",    nameTh: "กรุงเทพ",                  nameEn: "Bangkok Bank",                 exchange: "SET", sector: "Banking" },
+    { assetType: "thai_stock", ticker: "KTB",    nameTh: "กรุงไทย",                  nameEn: "Krungthai Bank",               exchange: "SET", sector: "Banking" },
+    { assetType: "thai_stock", ticker: "BAY",    nameTh: "กรุงศรีอยุธยา",            nameEn: "Bank of Ayudhya",              exchange: "SET", sector: "Banking" },
+    { assetType: "thai_stock", ticker: "KKP",    nameTh: "เกียรตินาคินภัทร",         nameEn: "Kiatnakin Phatra Bank",        exchange: "SET", sector: "Banking" },
+    { assetType: "thai_stock", ticker: "TISCO",  nameTh: "ทิสโก้ ไฟแนนเชียล",       nameEn: "TISCO Financial Group",        exchange: "SET", sector: "Banking" },
+    { assetType: "thai_stock", ticker: "CPALL",  nameTh: "ซีพี ออลล์",               nameEn: "CP All",                       exchange: "SET", sector: "Commerce" },
+    { assetType: "thai_stock", ticker: "MAKRO",  nameTh: "สยามแม็คโคร",              nameEn: "Siam Makro",                   exchange: "SET", sector: "Commerce" },
+    { assetType: "thai_stock", ticker: "HMPRO",  nameTh: "โฮม โปรดักส์ เซ็นเตอร์",  nameEn: "Home Product Center",          exchange: "SET", sector: "Commerce" },
+    { assetType: "thai_stock", ticker: "CPN",    nameTh: "เซ็นทรัลพัฒนา",            nameEn: "Central Pattana",              exchange: "SET", sector: "Property" },
+    { assetType: "thai_stock", ticker: "MINT",   nameTh: "ไมเนอร์ อินเตอร์เนชั่นแนล",nameEn: "Minor International",          exchange: "SET", sector: "Tourism" },
+    { assetType: "thai_stock", ticker: "BDMS",   nameTh: "กรุงเทพดุสิตเวชการ",       nameEn: "Bangkok Dusit Medical",        exchange: "SET", sector: "Healthcare" },
+    { assetType: "thai_stock", ticker: "BH",     nameTh: "โรงพยาบาลบำรุงราษฎร์",     nameEn: "Bumrungrad Hospital",          exchange: "SET", sector: "Healthcare" },
+    { assetType: "thai_stock", ticker: "SCC",    nameTh: "ปูนซิเมนต์ไทย",            nameEn: "Siam Cement Group",            exchange: "SET", sector: "Industrial" },
+    { assetType: "thai_stock", ticker: "DELTA",  nameTh: "เดลต้า อีเลคโทรนิคส์",    nameEn: "Delta Electronics Thailand",   exchange: "SET", sector: "Electronics" },
+    { assetType: "thai_stock", ticker: "GPSC",   nameTh: "โกลบอล เพาเวอร์ ซินเนอร์ยี่",nameEn: "Global Power Synergy",       exchange: "SET", sector: "Energy" },
+    { assetType: "thai_stock", ticker: "EA",     nameTh: "เอนเนอร์ยี่ แอบโซลูท",    nameEn: "Energy Absolute",              exchange: "SET", sector: "Energy" },
+    { assetType: "thai_stock", ticker: "IVL",    nameTh: "อินโดรามา เวนเจอร์ส",      nameEn: "Indorama Ventures",            exchange: "SET", sector: "Petrochemical" },
+    { assetType: "thai_stock", ticker: "MTC",    nameTh: "เมืองไทย แคปปิตอล",        nameEn: "Muangthai Capital",            exchange: "SET", sector: "Finance" },
+    { assetType: "thai_stock", ticker: "WHA",    nameTh: "ดับบลิวเอชเอ คอร์ปอเรชั่น",nameEn: "WHA Corporation",             exchange: "SET", sector: "Industrial" },
+    { assetType: "thai_stock", ticker: "BJC",    nameTh: "เบอร์ลี่ ยุคเกอร์",        nameEn: "Berli Jucker",                 exchange: "SET", sector: "Commerce" },
+    // ── Thai REITs ──────────────────────────────────────────────────────────
+    { assetType: "thai_reit",  ticker: "CPNREIT", nameTh: "เซ็นทรัล รีเทล รีท",    nameEn: "CPN Retail Growth REIT",       exchange: "SET", sector: "REIT" },
+    { assetType: "thai_reit",  ticker: "WHART",   nameTh: "ดับบลิวเอชเอ รีท",       nameEn: "WHA Premium Growth Freehold",  exchange: "SET", sector: "REIT" },
+    { assetType: "thai_reit",  ticker: "LHPF",    nameTh: "แอล เอช โฮสพิทอลลิตี้", nameEn: "LH Hospitality REIT",          exchange: "SET", sector: "REIT" },
+    { assetType: "thai_reit",  ticker: "TREIT",   nameTh: "ทีพาร์ค บีเอฟทีแซด รีท",nameEn: "TPARK BFTZ REIT",             exchange: "SET", sector: "REIT" },
+    // ── Thai Mutual Funds ────────────────────────────────────────────────────
+    { assetType: "thai_fund", ticker: "KMASTER",      nameTh: "กรุงศรี หุ้นระยะยาว",      nameEn: "Krungsri Master Fund",      provider: "Krungsri" },
+    { assetType: "thai_fund", ticker: "SCBDV",        nameTh: "ไทยพาณิชย์ ดีวิเดนด์",     nameEn: "SCB Dividend Stock",        provider: "SCB Asset Mgmt" },
+    { assetType: "thai_fund", ticker: "KFLTFD70",     nameTh: "กรุงศรีตราสารหนี้ 70%",    nameEn: "KF LT Fixed 70",           provider: "Krungsri" },
+    { assetType: "thai_fund", ticker: "SCBS&P500",    nameTh: "ไทยพาณิชย์ S&P 500",       nameEn: "SCB S&P 500",              provider: "SCB Asset Mgmt" },
+    { assetType: "thai_fund", ticker: "K-USXNDQ75A",  nameTh: "กสิกรไทย US Nasdaq 75A",   nameEn: "KAsset US Nasdaq 75",      provider: "KAsset" },
+    { assetType: "thai_fund", ticker: "TMBUSINDX",    nameTh: "ทีเอ็มบี US Index",         nameEn: "TMB US Index",             provider: "TMB Asset Mgmt" },
+    { assetType: "thai_fund", ticker: "PHATRA-EQ",    nameTh: "ภัทร กองทุนตราสารทุน",      nameEn: "Phatra Equity Fund",       provider: "Phatra Asset Mgmt" },
+    { assetType: "thai_fund", ticker: "ONE-ULT",      nameTh: "วัน อัลติเมท",              nameEn: "One Ultimate Fund",        provider: "One Asset Mgmt" },
+    { assetType: "thai_fund", ticker: "ASP-DIVA",     nameTh: "เอเอสพี ไดวา",              nameEn: "ASP Diva Fund",            provider: "ASP" },
+    // ── US ETFs ──────────────────────────────────────────────────────────────
+    { assetType: "us_etf", ticker: "VTI",  nameTh: "วีทีไอ (หุ้นสหรัฐทั้งตลาด)",  nameEn: "Vanguard Total Stock Market ETF",   exchange: "NYSE",   sector: "Broad Market" },
+    { assetType: "us_etf", ticker: "VOO",  nameTh: "วีโอโอ (S&P500)",              nameEn: "Vanguard S&P 500 ETF",             exchange: "NYSE",   sector: "Large Cap" },
+    { assetType: "us_etf", ticker: "SPY",  nameTh: "สปาย (S&P500 SPDR)",           nameEn: "SPDR S&P 500 ETF",                 exchange: "NYSE",   sector: "Large Cap" },
+    { assetType: "us_etf", ticker: "QQQ",  nameTh: "คิวคิวคิว (Nasdaq-100)",       nameEn: "Invesco QQQ Trust",                exchange: "NASDAQ", sector: "Technology" },
+    { assetType: "us_etf", ticker: "VWRA", nameTh: "วีดับเบิ้ลยูอาร์เอ (โลก)",    nameEn: "Vanguard FTSE All-World UCITS",    exchange: "LSE",    sector: "World" },
+    { assetType: "us_etf", ticker: "VT",   nameTh: "วีที (หุ้นโลก)",               nameEn: "Vanguard Total World Stock ETF",   exchange: "NYSE",   sector: "World" },
+    { assetType: "us_etf", ticker: "VXUS", nameTh: "วีเอ็กซ์ยูเอส (นอกสหรัฐ)",   nameEn: "Vanguard Total International",     exchange: "NASDAQ", sector: "International" },
+    { assetType: "us_etf", ticker: "VEA",  nameTh: "วีอีเอ (ตลาดพัฒนาแล้ว)",     nameEn: "Vanguard FTSE Developed Markets",  exchange: "NYSE",   sector: "Developed" },
+    { assetType: "us_etf", ticker: "VWO",  nameTh: "วีดับเบิ้ลยูโอ (ตลาดเกิดใหม่)",nameEn: "Vanguard FTSE Emerging Markets",   exchange: "NYSE",   sector: "Emerging" },
+    { assetType: "us_etf", ticker: "BND",  nameTh: "บีเอ็นดี (ตราสารหนี้สหรัฐ)",  nameEn: "Vanguard Total Bond Market ETF",   exchange: "NASDAQ", sector: "Fixed Income" },
+    { assetType: "us_etf", ticker: "ARKK", nameTh: "อาร์เคเค (Tech Innovation)",   nameEn: "ARK Innovation ETF",               exchange: "NYSE",   sector: "Innovation" },
+    { assetType: "us_etf", ticker: "GLD",  nameTh: "จีแอลดี (ทองคำ SPDR)",         nameEn: "SPDR Gold Shares",                 exchange: "NYSE",   sector: "Commodity" },
+    { assetType: "us_etf", ticker: "VNQ",  nameTh: "วีเอ็นคิว (REIT สหรัฐ)",      nameEn: "Vanguard Real Estate ETF",         exchange: "NYSE",   sector: "Real Estate" },
+    // ── US Stocks ────────────────────────────────────────────────────────────
+    { assetType: "us_stock", ticker: "AAPL",  nameTh: "แอปเปิล",         nameEn: "Apple Inc.",           exchange: "NASDAQ", sector: "Technology" },
+    { assetType: "us_stock", ticker: "MSFT",  nameTh: "ไมโครซอฟท์",      nameEn: "Microsoft Corp.",      exchange: "NASDAQ", sector: "Technology" },
+    { assetType: "us_stock", ticker: "GOOGL", nameTh: "อัลฟาเบท/กูเกิล", nameEn: "Alphabet Inc.",        exchange: "NASDAQ", sector: "Technology" },
+    { assetType: "us_stock", ticker: "AMZN",  nameTh: "แอมาซอน",         nameEn: "Amazon.com Inc.",      exchange: "NASDAQ", sector: "Commerce" },
+    { assetType: "us_stock", ticker: "NVDA",  nameTh: "เอ็นวิเดีย",      nameEn: "NVIDIA Corporation",   exchange: "NASDAQ", sector: "Semiconductors" },
+    { assetType: "us_stock", ticker: "META",  nameTh: "เมตา แพลตฟอร์ม",  nameEn: "Meta Platforms Inc.",  exchange: "NASDAQ", sector: "Technology" },
+    { assetType: "us_stock", ticker: "TSLA",  nameTh: "เทสลา",           nameEn: "Tesla Inc.",           exchange: "NASDAQ", sector: "EV/Auto" },
+    { assetType: "us_stock", ticker: "AVGO",  nameTh: "บรอดคอม",         nameEn: "Broadcom Inc.",        exchange: "NASDAQ", sector: "Semiconductors" },
+    { assetType: "us_stock", ticker: "JPM",   nameTh: "เจพีมอร์แกน",     nameEn: "JPMorgan Chase",       exchange: "NYSE",   sector: "Banking" },
+    { assetType: "us_stock", ticker: "V",     nameTh: "วีซ่า",            nameEn: "Visa Inc.",            exchange: "NYSE",   sector: "Payments" },
+    { assetType: "us_stock", ticker: "MA",    nameTh: "มาสเตอร์การ์ด",   nameEn: "Mastercard Inc.",      exchange: "NYSE",   sector: "Payments" },
+    { assetType: "us_stock", ticker: "COIN",  nameTh: "คอยน์เบส",         nameEn: "Coinbase Global",      exchange: "NASDAQ", sector: "Crypto Exchange" },
+    // ── Crypto ────────────────────────────────────────────────────────────
+    { assetType: "crypto", ticker: "BTC",   nameTh: "บิตคอยน์",              nameEn: "Bitcoin",          exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "ETH",   nameTh: "อีเธอเรียม",            nameEn: "Ethereum",         exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "BNB",   nameTh: "บีเอ็นบี",              nameEn: "BNB (Binance)",    exchange: "Crypto", sector: "Exchange Token" },
+    { assetType: "crypto", ticker: "SOL",   nameTh: "โซลานา",               nameEn: "Solana",           exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "XRP",   nameTh: "ริปเปิล",               nameEn: "XRP",              exchange: "Crypto", sector: "Payments" },
+    { assetType: "crypto", ticker: "ADA",   nameTh: "คาร์ดาโน",             nameEn: "Cardano",          exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "AVAX",  nameTh: "อาวาแลนช์",            nameEn: "Avalanche",        exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "DOGE",  nameTh: "โดจคอยน์",             nameEn: "Dogecoin",         exchange: "Crypto", sector: "Meme" },
+    { assetType: "crypto", ticker: "DOT",   nameTh: "พอลกาด็อต",            nameEn: "Polkadot",         exchange: "Crypto", sector: "Layer 0" },
+    { assetType: "crypto", ticker: "LINK",  nameTh: "เชนลิงค์",             nameEn: "Chainlink",        exchange: "Crypto", sector: "Oracle" },
+    { assetType: "crypto", ticker: "MATIC", nameTh: "โพลิกอน",              nameEn: "Polygon (POL)",    exchange: "Crypto", sector: "Layer 2" },
+    { assetType: "crypto", ticker: "UNI",   nameTh: "ยูนิสวอป",             nameEn: "Uniswap",          exchange: "Crypto", sector: "DeFi" },
+    { assetType: "crypto", ticker: "SUI",   nameTh: "ซุย",                  nameEn: "Sui",              exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "APT",   nameTh: "แอปทอส",               nameEn: "Aptos",            exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "ARB",   nameTh: "อาร์บิทรัม",           nameEn: "Arbitrum",         exchange: "Crypto", sector: "Layer 2" },
+    { assetType: "crypto", ticker: "TON",   nameTh: "เดอะ โอเพ่น เน็ตเวิร์ค",nameEn: "Toncoin",        exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "NEAR",  nameTh: "เนียร์",               nameEn: "NEAR Protocol",    exchange: "Crypto", sector: "Layer 1" },
+    { assetType: "crypto", ticker: "USDT",  nameTh: "เทเธอร์",              nameEn: "Tether",           exchange: "Crypto", sector: "Stablecoin" },
+    { assetType: "crypto", ticker: "USDC",  nameTh: "ยูเอสดีซี",            nameEn: "USD Coin",         exchange: "Crypto", sector: "Stablecoin" },
+    // ── Gold ──────────────────────────────────────────────────────────────
+    { assetType: "gold", ticker: "GOLD_BAR",     nameTh: "ทองคำแท่ง (96.5%)",     nameEn: "Gold Bar 96.5%",      sector: "Physical Gold" },
+    { assetType: "gold", ticker: "GOLD_ONLINE",   nameTh: "ทองออนไลน์ / Gold Spot",nameEn: "Gold Online",         sector: "Physical Gold" },
+    { assetType: "gold", ticker: "GOLD_JEWELRY",  nameTh: "ทองรูปพรรณ (96.5%)",   nameEn: "Gold Jewelry 96.5%",  sector: "Physical Gold" },
+  ];
+
+  let instrumentCount = 0;
+  for (const inst of instruments) {
+    await (prisma as any).instrumentCatalog.upsert({
+      where: { assetType_ticker: { assetType: inst.assetType, ticker: inst.ticker } },
+      update: { nameTh: inst.nameTh, nameEn: inst.nameEn, exchange: inst.exchange, provider: inst.provider, sector: inst.sector },
+      create: inst,
+    });
+    instrumentCount++;
+  }
+  console.log(`  ✅ ${instrumentCount} instruments seeded`);
 
   console.log("\n✨ Seeding complete!");
   console.log("   🔑 Demo login: demo@myfinance.th / demo1234");

@@ -40,6 +40,7 @@ const FinancialProfileSchema = z.object({
   // Liabilities
   totalDebt: z.coerce.number().min(0).optional(),
   monthlyDebtPayment: z.coerce.number().min(0).optional(),
+  debtInterestRate: z.coerce.number().min(0).max(100).optional(),
   // Emergency fund
   emergencyFundAmount: z.coerce.number().min(0).optional(),
   monthlyExpenses: z.coerce.number().min(0).optional(),

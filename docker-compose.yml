@@ -34,10 +34,31 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-admin-secret-change-me}
+      OLLAMA_BASE_URL: http://ollama:11434
       NODE_ENV: production
     depends_on:
       db:
         condition: service_healthy
+      ollama:
+        condition: service_started
+
+  # ─── Ollama (local LLM server) ──────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: myfinance-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment the block below if you have an NVIDIA GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
   # ─── DB Migration + Seed (runs once then exits) ───────────────────────────
   migrate:
@@ -56,3 +77,4 @@ services:
 
 volumes:
   db_data:
+  ollama_data:

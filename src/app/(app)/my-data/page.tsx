@@ -11,7 +11,7 @@ import {
   Save, Loader2, CheckCircle2, Wallet, Building2, Heart,
   ShieldAlert, Activity, UserCheck, AlertCircle, ExternalLink,
   MapPin, Coins, BarChart3, Globe, Layers, Bitcoin,
-  ChevronDown, ChevronUp, Landmark, Plus, Trash2, X, LayoutGrid,
+  ChevronDown, ChevronUp, ChevronLeft, Landmark, Plus, Trash2, X, LayoutGrid, Search, Pencil, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -49,6 +49,7 @@ interface FinancialProfile {
   otherInvestAmount: number;
   totalDebt: number;
   monthlyDebtPayment: number;
+  debtInterestRate: number;
   emergencyFundAmount: number;
   monthlyExpenses: number;
 }
@@ -61,7 +62,7 @@ const defaultProfile: FinancialProfile = {
   annuityInsurancePremium: 0, spouseLifeInsurancePremium: 0,
   ltfAmount: 0, rmfAmount: 0, ssfAmount: 0, thaiEsgAmount: 0,
   goldAmount: 0, cryptoAmount: 0, etfAmount: 0, thaiStockAmount: 0, foreignStockAmount: 0, otherInvestAmount: 0,
-  totalDebt: 0, monthlyDebtPayment: 0, emergencyFundAmount: 0, monthlyExpenses: 0,
+  totalDebt: 0, monthlyDebtPayment: 0, debtInterestRate: 0, emergencyFundAmount: 0, monthlyExpenses: 0,
 };
 
 // ─── Tab Types ───────────────────────────────────────────────────────────────
@@ -328,8 +329,10 @@ function InsuranceTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof F
 
 // ─── Tab: Investment ──────────────────────────────────────────────────────────
 
+const TAX_ASSET_TYPES = ["rmf", "ssf", "thai_esg", "ltf", "provident_fund"] as const;
 const TAX_FUNDS = [
   {
+    code: "rmf",
     key: "rmfAmount" as keyof FinancialProfile,
     label: "RMF", sublabel: "Retirement Mutual Fund",
     icon: Landmark, color: "text-violet-600", bg: "bg-violet-50 dark:bg-violet-950/30", border: "border-violet-200",
@@ -337,6 +340,7 @@ const TAX_FUNDS = [
     hint: "30% ของรายได้ รวมกลุ่ม ≤ 500,000",
   },
   {
+    code: "ssf",
     key: "ssfAmount" as keyof FinancialProfile,
     label: "SSF", sublabel: "Super Savings Fund",
     icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", border: "border-blue-200",
@@ -344,6 +348,7 @@ const TAX_FUNDS = [
     hint: "30% ของรายได้ ≤ 200,000",
   },
   {
+    code: "thai_esg",
     key: "thaiEsgAmount" as keyof FinancialProfile,
     label: "Thai ESG", sublabel: "Thai ESG Fund",
     icon: Globe, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200",
@@ -351,6 +356,7 @@ const TAX_FUNDS = [
     hint: "30% ของรายได้ ≤ 300,000",
   },
   {
+    code: "ltf",
     key: "ltfAmount" as keyof FinancialProfile,
     label: "LTF", sublabel: "กองทุนเก่า (pre-2020)",
     icon: Coins, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-950/30", border: "border-amber-200",
@@ -358,6 +364,7 @@ const TAX_FUNDS = [
     hint: "15% ของรายได้ ≤ 500,000 (สำหรับผู้ที่ซื้อก่อน 2020)",
   },
   {
+    code: "provident_fund",
     key: "providentFundAmount" as keyof FinancialProfile,
     label: "PVD", sublabel: "กองทุนสำรองเลี้ยงชีพ",
     icon: Building2, color: "text-indigo-600", bg: "bg-indigo-50 dark:bg-indigo-950/30", border: "border-indigo-200",
@@ -366,28 +373,84 @@ const TAX_FUNDS = [
   },
 ];
 
-const PERSONAL_EMOJIS = ["💰","📈","🏠","🚗","🌾","💎","🏦","🪙","🎯","🌐","🏗️","🛢️","☁️","🤖"];
-
 type PortfolioAsset = {
   id: string; name: string;
-  group: "thai" | "international" | "other";
+  group: "thai" | "international" | "other" | "tax";
   emoji: string; currentValue: number; isBuiltIn: boolean; sortOrder: number;
+  ticker?: string | null; units?: number | null; avgCostPerUnit?: number | null;
+  assetType?: string | null; expectedReturn?: number | null;
 };
 
-const GROUP_CONFIG: Record<string, { label: string; borderColor: string; bg: string }> = {
-  thai:          { label: "🇹🇭 ไทย",          borderColor: "border-red-300",   bg: "bg-red-50/60 dark:bg-red-950/20" },
-  international: { label: "🌎 ต่างประเทศ",   borderColor: "border-blue-300",  bg: "bg-blue-50/60 dark:bg-blue-950/20" },
-  other:         { label: "💰 อื่น ๆ",         borderColor: "border-slate-300", bg: "bg-slate-50/60 dark:bg-slate-950/20" },
+type AssetTypeDef = {
+  code: string; label: string; labelEn: string;
+  emoji: string; group: "thai" | "international" | "other"; desc: string;
+};
+
+const ASSET_TYPE_CATALOG: AssetTypeDef[] = [
+  // ── Thai ──
+  { code: "thai_stock",    label: "หุ้นไทย",              labelEn: "Thai Stocks",     emoji: "📈", group: "thai",          desc: "หุ้นในตลาดหลักทรัพย์ SET / MAI" },
+  { code: "thai_fund",     label: "กองทุนรวมไทย",         labelEn: "Thai Mutual Fund", emoji: "🏦", group: "thai",          desc: "กองทุนตราสารทุน / ตราสารหนี้" },
+  { code: "thai_reit",     label: "REIT ไทย",             labelEn: "Thai REITs",      emoji: "🏢", group: "thai",          desc: "กองทรัสต์อสังหาริมทรัพย์" },
+  { code: "thai_bond",     label: "พันธบัตรรัฐบาล",      labelEn: "Gov Bond",         emoji: "📜", group: "thai",          desc: "พันธบัตรรัฐบาล / หุ้นกู้" },
+  { code: "thai_property", label: "อสังหาริมทรัพย์",     labelEn: "Real Estate",      emoji: "🏠", group: "thai",          desc: "บ้าน คอนโด ที่ดิน" },
+  // ── International ──
+  { code: "us_stock",      label: "หุ้นสหรัฐ",           labelEn: "US Stocks",        emoji: "🇺🇸", group: "international", desc: "S&P500, NASDAQ, หุ้นรายตัว" },
+  { code: "world_etf",     label: "ETF ทั่วโลก",         labelEn: "World ETF",        emoji: "🌍", group: "international", desc: "VT, VXUS, MSCI World" },
+  { code: "asia_stock",    label: "หุ้นเอเชีย",          labelEn: "Asia Stocks",      emoji: "🌏", group: "international", desc: "จีน ญี่ปุ่น เกาหลี อินเดีย" },
+  { code: "intl_bond",     label: "ตราสารหนี้ต่างประเทศ", labelEn: "Intl Bonds",      emoji: "📋", group: "international", desc: "พันธบัตรต่างประเทศ" },
+  { code: "intl_reit",     label: "REIT ต่างประเทศ",     labelEn: "Global REITs",     emoji: "🏗️", group: "international", desc: "กองทรัสต์อสังหาฯ ต่างประเทศ" },
+  // ── Other ──
+  { code: "gold",          label: "ทองคำ",               labelEn: "Gold",             emoji: "🥇", group: "other",         desc: "ทองแท่ง ทองรูปพรรณ Gold Online" },
+  { code: "crypto",        label: "คริปโตเคอร์เรนซี",   labelEn: "Cryptocurrency",   emoji: "₿",  group: "other",         desc: "Bitcoin, Ethereum, Altcoin" },
+  { code: "deposit",       label: "เงินฝากประจำ",        labelEn: "Fixed Deposit",    emoji: "🏛️", group: "other",         desc: "เงินฝากประจำ ตั๋วแลกเงิน" },
+  { code: "commodity",     label: "สินค้าโภคภัณฑ์",     labelEn: "Commodities",      emoji: "🛢️", group: "other",         desc: "น้ำมัน เงิน ทองแดง" },
+  { code: "startup",       label: "หุ้นนอกตลาด",        labelEn: "Private Equity",   emoji: "🚀", group: "other",         desc: "Startup / หุ้นที่ไม่อยู่ใน SET" },
+  { code: "custom",        label: "กำหนดเอง",            labelEn: "Custom",           emoji: "✏️", group: "other",         desc: "ระบุชื่อสินทรัพย์เอง" },
+];
+
+const CATALOG_BY_GROUP = (g: string) =>
+  ASSET_TYPE_CATALOG.filter(t => t.group === g || t.code === "custom");
+
+const GROUP_CONFIG: Record<string, { label: string; tab: string; activeTab: string; dot: string }> = {
+  thai:          { label: "🇹🇭 ไทย",        tab: "text-red-600 border-red-400",   activeTab: "bg-red-50 border-red-400 text-red-700",   dot: "bg-red-400" },
+  international: { label: "🌎 ต่างประเทศ",  tab: "text-blue-600 border-blue-400", activeTab: "bg-blue-50 border-blue-400 text-blue-700", dot: "bg-blue-400" },
+  other:         { label: "💰 อื่น ๆ",       tab: "text-slate-600 border-slate-400", activeTab: "bg-slate-100 border-slate-400 text-slate-700", dot: "bg-slate-400" },
+};
+
+type SearchResult = {
+  id: string; assetType: string; ticker: string;
+  nameTh?: string; nameEn?: string; exchange?: string; provider?: string; sector?: string;
 };
 
 function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
-  const [view, setView] = useState<"tax" | "personal">("tax");
-  const [assets, setAssets]         = useState<PortfolioAsset[]>([]);
+  const [view, setView]           = useState<"tax" | "personal">("tax");
+  const [groupTab, setGroupTab]   = useState<"thai" | "international" | "other">("thai");
+  const [assets, setAssets]       = useState<PortfolioAsset[]>([]);
   const [assetsLoaded, setAssetsLoaded] = useState(false);
   const [assetsLoading, setAssetsLoading] = useState(false);
-  const [addingGroup, setAddingGroup] = useState<string | null>(null);
-  const [addForm, setAddForm]         = useState({ name: "", emoji: "💰", currentValue: "" });
-  const [addSaving, setAddSaving]     = useState(false);
+  // Add form state — one inline add form per type card
+  const [activeAddCode, setActiveAddCode]   = useState<string | null>(null);
+  const [addFormStep, setAddFormStep]       = useState<"search" | "details">("search");
+  // Instrument search
+  const [searchQ, setSearchQ]               = useState("");
+  const [searchResults, setSearchResults]   = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading]   = useState(false);
+  const [pickedInstrument, setPickedInstrument] = useState<SearchResult | null>(null);
+  const [customName, setCustomName]         = useState("");
+  // Values
+  const [addValue, setAddValue]             = useState("");
+  const [addUnits, setAddUnits]             = useState("");
+  const [addAvgCost, setAddAvgCost]         = useState("");
+  const [addSaving, setAddSaving]           = useState(false);
+  // Edit existing asset
+  const [editingId, setEditingId]   = useState<string | null>(null);
+  const [editUnits, setEditUnits]   = useState("");
+  const [editCost, setEditCost]     = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [typeRates, setTypeRates]   = useState<Record<string, number>>({});
+  const [taxFundRates, setTaxFundRates] = useState<Record<string, number>>({});
+  const [aiRateLoading, setAiRateLoading] = useState(false);
+  const searchTimer = useState<ReturnType<typeof setTimeout> | null>(null);
   const updateTimers = useState<Record<string, ReturnType<typeof setTimeout>>>({})[0];
 
   const annualIncome = p.annualSalary + p.bonus + p.otherIncome;
@@ -396,24 +459,49 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
   const rmfCap      = Math.min(p.rmfAmount + p.providentFundAmount, annualIncome * 0.30, 500_000);
   const esgCap      = Math.min(p.thaiEsgAmount, 300_000, annualIncome * 0.30);
   const deductGrp   = Math.min(ssfCap + rmfCap + esgCap + Math.min(p.ltfAmount, annualIncome * 0.15), 500_000);
-  const persTotal   = assets.reduce((s, a) => s + a.currentValue, 0);
+  const persAssets  = assets.filter(a => !(TAX_ASSET_TYPES as readonly string[]).includes(a.assetType ?? ""));
+  const persTotal   = persAssets.reduce((s, a) => s + a.currentValue, 0);
   const grandTotal  = taxTotal + persTotal;
+  // Weighted average expected return across personal portfolio
+  const portfolioWeightedReturn = persTotal > 0
+    ? persAssets.reduce((sum, a) => sum + a.currentValue * (a.expectedReturn ?? typeRates[a.assetType ?? ""] ?? 0), 0) / persTotal
+    : 0;
+  // Weighted average expected return across tax-deduction funds
+  const taxWeightedReturn = taxTotal > 0
+    ? TAX_FUNDS.reduce((sum, f) => {
+        const rate = taxFundRates[f.code] ?? 0;
+        const taxAssets = assets.filter(a => a.assetType === f.code);
+        const val = taxAssets.length > 0
+          ? taxAssets.reduce((s, a) => s + a.currentValue, 0)
+          : (p[f.key] as number);
+        return sum + val * rate;
+      }, 0) / taxTotal
+    : 0;
 
   const fetchAssets = () => {
     setAssetsLoading(true);
     fetch("/api/user/portfolio-assets").then(r => r.json()).then(d => {
-      setAssets(d.data?.map((a: PortfolioAsset) => ({ ...a, currentValue: Number(a.currentValue) })) ?? []);
+      setAssets(d.data?.map((a: PortfolioAsset) => ({ ...a, currentValue: Number(a.currentValue), expectedReturn: a.expectedReturn != null ? Number(a.expectedReturn) : null })) ?? []);
+      // Seed typeRates from first asset of each type that has a rate
+      const rates: Record<string, number> = {};
+      d.data?.forEach((a: PortfolioAsset) => {
+        if (a.assetType && a.expectedReturn != null && !rates[a.assetType]) {
+          rates[a.assetType] = Number(a.expectedReturn);
+        }
+      });
+      setTypeRates(prev => ({ ...prev, ...rates }));
       setAssetsLoaded(true);
       setAssetsLoading(false);
     }).catch(() => setAssetsLoading(false));
   };
 
   useEffect(() => {
-    if (view === "personal" && !assetsLoaded) fetchAssets();
+    fetchAssets();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, []);
 
   const handleValueChange = (id: string, val: number) => {
+    const asset = assets.find(a => a.id === id);
     setAssets(prev => prev.map(a => a.id === id ? { ...a, currentValue: val } : a));
     if (updateTimers[id]) clearTimeout(updateTimers[id]);
     updateTimers[id] = setTimeout(() => {
@@ -422,31 +510,233 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
         body: JSON.stringify({ currentValue: val }),
       });
     }, 600);
-  };
-
-  const handleRemove = async (id: string, isBuiltIn: boolean) => {
-    await fetch(`/api/user/portfolio-assets/${id}`, { method: "DELETE" });
-    if (isBuiltIn) {
-      // Built-in: API zeroes the value; reflect locally
-      setAssets(prev => prev.map(a => a.id === id ? { ...a, currentValue: 0 } : a));
-    } else {
-      setAssets(prev => prev.filter(a => a.id !== id));
+    if (asset) {
+      const taxFund = TAX_FUNDS.find(f => f.code === asset.assetType);
+      if (taxFund) {
+        const newTotal = assets.map(a => a.id === id ? { ...a, currentValue: val } : a)
+          .filter(a => a.assetType === taxFund.code)
+          .reduce((s, a) => s + a.currentValue, 0);
+        upd(taxFund.key, newTotal as FinancialProfile[typeof taxFund.key]);
+      }
     }
   };
 
-  const handleAdd = async (group: string) => {
-    if (!addForm.name.trim()) return;
+  const handleRemove = async (id: string, isBuiltIn: boolean) => {
+    const asset = assets.find(a => a.id === id);
+    await fetch(`/api/user/portfolio-assets/${id}`, { method: "DELETE" });
+    let newAssets: PortfolioAsset[];
+    if (isBuiltIn) {
+      newAssets = assets.map(a => a.id === id ? { ...a, currentValue: 0 } : a);
+    } else {
+      newAssets = assets.filter(a => a.id !== id);
+    }
+    setAssets(newAssets);
+    if (asset) {
+      const taxFund = TAX_FUNDS.find(f => f.code === asset.assetType);
+      if (taxFund) {
+        const newTotal = newAssets.filter(a => a.assetType === taxFund.code).reduce((s, a) => s + a.currentValue, 0);
+        upd(taxFund.key, newTotal as FinancialProfile[typeof taxFund.key]);
+      }
+    }
+  };
+
+  const resetAddForm = () => {
+    setActiveAddCode(null);
+    setAddFormStep("search");
+    setPickedInstrument(null);
+    setSearchQ("");
+    setSearchResults([]);
+    setCustomName("");
+    setAddValue("");
+    setAddUnits("");
+    setAddAvgCost("");
+  };
+
+  const doSearch = useCallback(async (q: string, assetType: string) => {
+    setSearchLoading(true);
+    const params = new URLSearchParams({ q, limit: "12" });
+    if (assetType) params.set("type", assetType);
+    const res = await fetch(`/api/instruments?${params}`);
+    const data = await res.json();
+    setSearchResults(data.data ?? []);
+    setSearchLoading(false);
+  }, []);
+
+  const handleSearchChange = (q: string, assetType: string) => {
+    setSearchQ(q);
+    setPickedInstrument(null);
+    if (searchTimer[0]) clearTimeout(searchTimer[0]);
+    searchTimer[0] = setTimeout(() => doSearch(q, assetType), 300);
+  };
+
+  const handleStartAdd = (type: AssetTypeDef) => {
+    resetAddForm();
+    setActiveAddCode(type.code);
+    setAddFormStep("search");
+    if (type.code !== "custom") doSearch("", type.code);
+  };
+
+  const handleStartTaxAdd = (fund: (typeof TAX_FUNDS)[0]) => {
+    resetAddForm();
+    setActiveAddCode(fund.code);
+    setAddFormStep("search");
+  };
+
+  const handleAddTaxFund = async (fund: (typeof TAX_FUNDS)[0]) => {
+    const name = pickedInstrument
+      ? (pickedInstrument.nameTh ?? pickedInstrument.nameEn ?? pickedInstrument.ticker ?? "")
+      : customName.trim();
+    const ticker = pickedInstrument?.ticker;
+    const finalName = name || ticker || "";
+    if (!finalName) return;
+    setAddSaving(true);
+    const annualAmount = parseFloat(addValue) || 0;
+    const res = await fetch("/api/user/portfolio-assets", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        assetType: fund.code, ticker, name: finalName,
+        emoji: "🏦", group: "tax", currentValue: annualAmount,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok && data.data) {
+      const newAssets = [...assets, { ...data.data, currentValue: annualAmount }];
+      setAssets(newAssets);
+      const newTotal = newAssets.filter(a => a.assetType === fund.code).reduce((s, a) => s + a.currentValue, 0);
+      upd(fund.key, newTotal as FinancialProfile[typeof fund.key]);
+    }
+    setAddSaving(false);
+    resetAddForm();
+  };
+
+  const handleAdd = async (type: AssetTypeDef) => {
+    const name = pickedInstrument
+      ? (pickedInstrument.nameTh ?? pickedInstrument.nameEn ?? pickedInstrument.ticker ?? "")
+      : customName.trim();
+    const ticker = pickedInstrument?.ticker;
+    const finalName = name || ticker || "";
+    if (!finalName) return;
+    const costValue = (parseFloat(addUnits || "0") || 0) * (parseFloat(addAvgCost || "0") || 0);
     setAddSaving(true);
     const res = await fetch("/api/user/portfolio-assets", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: addForm.name.trim(), emoji: addForm.emoji, group, currentValue: parseFloat(addForm.currentValue) || 0 }),
+      body: JSON.stringify({
+        assetType: type.code,
+        ticker,
+        name: finalName,
+        emoji: type.emoji,
+        group: type.group,
+        currentValue: parseFloat(addValue) || costValue || 0,
+        units: addUnits ? parseFloat(addUnits) : null,
+        avgCostPerUnit: addAvgCost ? parseFloat(addAvgCost) : null,
+      }),
     });
     const data = await res.json();
-    if (res.ok && data.data) setAssets(prev => [...prev, { ...data.data, currentValue: Number(data.data.currentValue) }]);
+    if (res.ok && data.data) {
+      setAssets(prev => [...prev, { ...data.data, currentValue: Number(data.data.currentValue) }]);
+    }
     setAddSaving(false);
-    setAddingGroup(null);
-    setAddForm({ name: "", emoji: "💰", currentValue: "" });
+    resetAddForm();
   };
+
+  const handleLumpSumChange = (type: AssetTypeDef, val: number) => {
+    const lump = assets.find(a => a.assetType === type.code && !a.ticker);
+    if (lump) {
+      handleValueChange(lump.id, val);
+    } else if (val > 0) {
+      const key = `lump_${type.code}`;
+      if (updateTimers[key]) clearTimeout(updateTimers[key]);
+      updateTimers[key] = setTimeout(async () => {
+        const res = await fetch("/api/user/portfolio-assets", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assetType: type.code, name: type.label, emoji: type.emoji, group: type.group, currentValue: val }),
+        });
+        const data = await res.json();
+        if (res.ok && data.data) setAssets(prev => [...prev, { ...data.data, currentValue: val }]);
+      }, 800);
+    }
+  };
+
+  const openEdit = (asset: PortfolioAsset) => {
+    setEditingId(asset.id);
+    setEditUnits(asset.units != null ? String(asset.units) : "");
+    setEditCost(asset.avgCostPerUnit != null ? String(asset.avgCostPerUnit) : "");
+  };
+
+  const handleTaxFundRateChange = (fundCode: string, rate: number) => {
+    setTaxFundRates(prev => ({ ...prev, [fundCode]: rate }));
+    // Persist to any child assets of this tax fund
+    const taxAssets = assets.filter(a => a.assetType === fundCode);
+    const timerKey = `taxrate_${fundCode}`;
+    if (updateTimers[timerKey]) clearTimeout(updateTimers[timerKey]);
+    updateTimers[timerKey] = setTimeout(() => {
+      taxAssets.forEach(a => {
+        fetch(`/api/user/portfolio-assets/${a.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedReturn: rate || null }),
+        });
+      });
+    }, 700);
+  };
+
+  const handleAiSuggestRates = async (assetCodes: string[], target: "tax" | "portfolio") => {
+    setAiRateLoading(true);
+    try {
+      const res = await fetch("/api/ai/suggest-rates", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetTypes: assetCodes }),
+      });
+      const data = await res.json();
+      if (res.ok && data.rates) {
+        if (target === "tax") {
+          setTaxFundRates(prev => ({ ...prev, ...data.rates }));
+        } else {
+          setTypeRates(prev => ({ ...prev, ...data.rates }));
+          setAssets(prev => prev.map(a => {
+            const r = a.assetType ? data.rates[a.assetType] : undefined;
+            return r !== undefined ? { ...a, expectedReturn: r } : a;
+          }));
+        }
+      }
+    } catch {
+      // silently fail — user can retry
+    }
+    setAiRateLoading(false);
+  };
+
+  const handleReturnRateChange = (assetTypeCode: string, rate: number) => {
+    setTypeRates(prev => ({ ...prev, [assetTypeCode]: rate }));
+    setAssets(prev => prev.map(a => a.assetType === assetTypeCode ? { ...a, expectedReturn: rate } : a));
+    const typeAssets = assets.filter(a => a.assetType === assetTypeCode);
+    const timerKey = `rate_${assetTypeCode}`;
+    if (updateTimers[timerKey]) clearTimeout(updateTimers[timerKey]);
+    updateTimers[timerKey] = setTimeout(() => {
+      typeAssets.forEach(a => {
+        fetch(`/api/user/portfolio-assets/${a.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedReturn: rate || null }),
+        });
+      });
+    }, 700);
+  };
+
+  const handleEditSave = async (id: string) => {
+    setEditSaving(true);
+    const units = editUnits !== "" ? parseFloat(editUnits) : null;
+    const avgCostPerUnit = editCost !== "" ? parseFloat(editCost) : null;
+    const res = await fetch(`/api/user/portfolio-assets/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ units, avgCostPerUnit }),
+    });
+    if (res.ok) {
+      setAssets(prev => prev.map(a => a.id === id ? { ...a, units, avgCostPerUnit } : a));
+      setEditingId(null);
+    }
+    setEditSaving(false);
+  };
+
+  const groupAssets   = assets.filter(a => a.group === groupTab);
+  const groupTotal    = groupAssets.reduce((s, a) => s + a.currentValue, 0);
 
   return (
     <div className="space-y-4">
@@ -467,6 +757,7 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
         <div className="flex flex-wrap gap-4 px-4 py-3 rounded-xl bg-muted/50 border">
           <SummaryPill label="รวมทุกสินทรัพย์" value={thb(grandTotal)} color="text-indigo-600" />
           {taxTotal > 0 && <SummaryPill label="กองทุนภาษี/ปี" value={thb(taxTotal)} color="text-violet-600" />}
+          {taxWeightedReturn > 0 && <SummaryPill label="ผลตอบแทนภาษี" value={`~${taxWeightedReturn.toFixed(1)}%/ปี`} color="text-violet-500" />}
           {persTotal > 0 && <SummaryPill label="พอร์ตส่วนตัว" value={thb(persTotal)} color="text-blue-600" />}
           {annualIncome > 0 && grandTotal > 0 && <SummaryPill label="ลงทุน/รายได้" value={`${((grandTotal / annualIncome) * 100).toFixed(0)}%`} />}
         </div>
@@ -486,40 +777,61 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
               </div>
             </div>
           )}
+          {/* AI suggest rates for tax funds */}
+          <div className="flex justify-end">
+            <button
+              onClick={() => handleAiSuggestRates(TAX_FUNDS.map(f => f.code), "tax")}
+              disabled={aiRateLoading}
+              className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-700 border border-dashed border-violet-300 rounded-lg px-3 py-1.5 hover:bg-violet-50 transition-colors disabled:opacity-50">
+              {aiRateLoading
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Sparkles className="h-3.5 w-3.5" />}
+              AI ประมาณผลตอบแทน
+            </button>
+          </div>
           {TAX_FUNDS.map(fund => {
-            const Icon  = fund.icon;
-            const value = p[fund.key] as number;
-            const cap   = annualIncome > 0 ? fund.capFn(annualIncome) : null;
-            const pct   = cap && cap > 0 ? Math.min(100, (value / cap) * 100) : null;
-            const room  = cap ? Math.max(0, cap - value) : null;
+            const Icon         = fund.icon;
+            const fundChildren = assets.filter(a => a.assetType === fund.code);
+            const childTotal   = fundChildren.reduce((s, a) => s + a.currentValue, 0);
+            const effectiveValue = fundChildren.length > 0 ? childTotal : (p[fund.key] as number);
+            const cap  = annualIncome > 0 ? fund.capFn(annualIncome) : null;
+            const pct  = cap && cap > 0 ? Math.min(100, (effectiveValue / cap) * 100) : null;
+            const room = cap ? Math.max(0, cap - effectiveValue) : null;
+            const isAddingHere = activeAddCode === fund.code;
             return (
               <div key={fund.key} className={cn(
-                "rounded-xl border p-4 transition-all",
-                value > 0 ? `${fund.bg} ${fund.border}` : "border-dashed border-muted-foreground/30"
+                "rounded-xl border overflow-hidden transition-all",
+                effectiveValue > 0 ? `${fund.bg} ${fund.border}` : "border-dashed border-muted-foreground/30"
               )}>
-                <div className="flex items-start gap-3">
-                  <div className={cn("rounded-full p-2 shrink-0", value > 0 ? fund.bg : "bg-muted/50")}>
-                    <Icon className={cn("h-4 w-4", value > 0 ? fund.color : "text-muted-foreground")} />
+                {/* Header */}
+                <div className="flex items-start gap-3 p-4">
+                  <div className={cn("rounded-full p-2 shrink-0", effectiveValue > 0 ? fund.bg : "bg-muted/50")}>
+                    <Icon className={cn("h-4 w-4", effectiveValue > 0 ? fund.color : "text-muted-foreground")} />
                   </div>
-                  <div className="flex-1 min-w-0 space-y-2">
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm">{fund.label}</span>
                       <span className="text-xs text-muted-foreground">{fund.sublabel}</span>
-                      {value > 0 && cap !== null && (
-                        <span className={cn("ml-auto text-xs font-medium px-2 py-0.5 rounded-full",
+                      <div className="flex items-center gap-1 ml-auto shrink-0">
+                        <Input
+                          type="number" min={0} max={100} step="0.5"
+                          className="h-7 w-14 text-xs text-center px-1 border-dashed"
+                          placeholder="0"
+                          value={taxFundRates[fund.code] ?? ""}
+                          onChange={e => handleTaxFundRateChange(fund.code, parseFloat(e.target.value) || 0)}
+                          title="ผลตอบแทนคาดหวัง %/ปี"
+                        />
+                        <span className="text-[10px] text-muted-foreground shrink-0">%/ปี</span>
+                      </div>
+                      {effectiveValue > 0 && cap !== null && (
+                        <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full",
                           pct! >= 100 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
                           {pct! >= 100 ? "ใช้ครบ ✓" : `${pct!.toFixed(0)}%`}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs shrink-0 text-muted-foreground whitespace-nowrap">บาท/ปี</Label>
-                      <Input type="number" min={0} className="h-8 text-sm" value={value || ""} placeholder="0"
-                        onChange={e => upd(fund.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof fund.key])}
-                      />
-                    </div>
-                    {pct !== null && value > 0 && (
-                      <div className="space-y-1">
+                    {pct !== null && effectiveValue > 0 && (
+                      <div className="space-y-0.5">
                         <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                           <div className={cn("h-full rounded-full transition-all", pct >= 100 ? "bg-emerald-500" : "bg-violet-400")}
                             style={{ width: `${Math.min(100, pct)}%` }} />
@@ -528,8 +840,139 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
                         {room === 0 && <p className="text-xs text-emerald-600">✓ ใช้สิทธิ์เต็มแล้ว!</p>}
                       </div>
                     )}
-                    {value === 0 && <p className="text-xs text-muted-foreground">{fund.hint}</p>}
+                    {effectiveValue === 0 && <p className="text-xs text-muted-foreground">{fund.hint}</p>}
                   </div>
+                </div>
+
+                {/* Child fund holdings */}
+                {fundChildren.length > 0 && (
+                  <div className="border-t divide-y">
+                    {fundChildren.map(child => (
+                      <div key={child.id} className="px-4 py-2.5 flex items-center gap-2">
+                        {child.ticker && (
+                          <span className="inline-block font-mono text-xs font-bold bg-muted px-1.5 py-0.5 rounded shrink-0">{child.ticker}</span>
+                        )}
+                        <span className="text-sm flex-1 min-w-0 truncate">{child.name}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-xs text-muted-foreground">฿</span>
+                          <Input type="number" min={0}
+                            className="h-7 w-28 text-sm bg-muted/40 border-0 focus-visible:ring-1 rounded-lg px-2"
+                            value={child.currentValue || ""} placeholder="0"
+                            onChange={e => handleValueChange(child.id, parseFloat(e.target.value) || 0)}
+                          />
+                          <span className="text-xs text-muted-foreground">/ปี</span>
+                        </div>
+                        <button onClick={() => handleRemove(child.id, false)}
+                          className="p-1 text-muted-foreground/40 hover:text-destructive transition-colors rounded shrink-0">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="px-4 py-1.5 flex justify-end">
+                      <span className="text-xs text-muted-foreground">รวม <span className="font-semibold text-foreground">{thb(childTotal)}/ปี</span></span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Manual input when no child holdings */}
+                {fundChildren.length === 0 && (
+                  <div className="border-t px-4 py-3 flex items-center gap-2">
+                    <Label className="text-xs shrink-0 text-muted-foreground whitespace-nowrap">บาท/ปี</Label>
+                    <Input type="number" min={0} className="h-8 text-sm" value={(p[fund.key] as number) || ""} placeholder="0"
+                      onChange={e => upd(fund.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof fund.key])}
+                    />
+                  </div>
+                )}
+
+                {/* Inline add-fund form */}
+                <div className="border-t px-4 py-2.5">
+                  {isAddingHere ? (
+                    <div className="space-y-2 pt-0.5">
+                      {addFormStep === "search" && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-semibold flex-1 text-muted-foreground">ค้นหาชื่อกองทุน ({fund.label})</p>
+                            <button onClick={resetAddForm} className="text-muted-foreground hover:text-foreground">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input autoFocus placeholder="เช่น KMASTER, SCBDV, K-ESG, ONE-ULT"
+                              value={searchQ}
+                              onChange={e => handleSearchChange(e.target.value, "")}
+                              className="h-9 text-sm pl-8" />
+                            {searchLoading && (
+                              <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                            )}
+                          </div>
+                          {searchResults.length > 0 && (
+                            <div className="border rounded-lg divide-y overflow-hidden max-h-44 overflow-y-auto">
+                              {searchResults.map(r => (
+                                <button key={r.id}
+                                  onClick={() => { setPickedInstrument(r); setAddFormStep("details"); }}
+                                  className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/60 transition-colors">
+                                  <span className="font-mono text-xs font-bold shrink-0">{r.ticker}</span>
+                                  <span className="text-xs text-muted-foreground truncate flex-1">{r.nameTh ?? r.nameEn}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {!searchLoading && searchQ.trim().length > 0 && searchResults.length === 0 && (
+                            <div className="text-center space-y-1.5 py-1">
+                              <p className="text-xs text-muted-foreground">ไม่พบใน catalog</p>
+                              <button
+                                onClick={() => { setCustomName(searchQ.trim()); setAddFormStep("details"); }}
+                                className="inline-flex items-center gap-1.5 text-xs text-primary border border-dashed border-primary/40 rounded-lg px-3 py-1.5 hover:bg-primary/5 transition-colors">
+                                <Plus className="h-3 w-3" />
+                                ใช้ &ldquo;{searchQ.trim()}&rdquo; เป็นชื่อ
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {addFormStep === "details" && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => { setAddFormStep("search"); setPickedInstrument(null); }}
+                              className="text-muted-foreground hover:text-foreground shrink-0">
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold leading-tight truncate">
+                                {pickedInstrument
+                                  ? `${pickedInstrument.ticker} – ${pickedInstrument.nameTh ?? pickedInstrument.nameEn ?? pickedInstrument.ticker}`
+                                  : customName}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">{fund.label}</p>
+                            </div>
+                            <button onClick={resetAddForm} className="text-muted-foreground hover:text-foreground shrink-0">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium">ลงทุน/ปี (฿)</Label>
+                            <Input type="number" min={0} placeholder="0"
+                              value={addValue} onChange={e => setAddValue(e.target.value)}
+                              className="h-8 text-sm" />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" className="flex-1" disabled={addSaving}
+                              onClick={() => handleAddTaxFund(fund)}>
+                              {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
+                              เพิ่ม
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={resetAddForm}>ยกเลิก</Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <button onClick={() => handleStartTaxAdd(fund)}
+                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
+                      <Plus className="h-3.5 w-3.5" /> เพิ่มชื่อกองทุน
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -544,135 +987,369 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
             <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           )}
 
-          {/* Allocation bar */}
-          {!assetsLoading && persTotal > 0 && (
-            <div className="rounded-xl border p-4 space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">สัดส่วนพอร์ต</p>
-              <div className="h-3 rounded-full overflow-hidden flex gap-px bg-muted">
-                {(["thai", "international", "other"] as const).map(g => {
-                  const groupTotal = assets.filter(a => a.group === g).reduce((s, a) => s + a.currentValue, 0);
-                  const pct = (groupTotal / persTotal) * 100;
-                  return pct > 0 ? (
-                    <div key={g} title={`${GROUP_CONFIG[g].label}: ${pct.toFixed(0)}%`}
-                      className={cn("h-full transition-all",
-                        g === "thai" ? "bg-red-400" : g === "international" ? "bg-blue-400" : "bg-slate-400"
-                      )}
-                      style={{ width: `${pct}%` }} />
-                  ) : null;
-                })}
-              </div>
-              <div className="flex flex-wrap gap-3">
-                {(["thai", "international", "other"] as const).map(g => {
-                  const groupTotal = assets.filter(a => a.group === g).reduce((s, a) => s + a.currentValue, 0);
-                  return groupTotal > 0 ? (
-                    <span key={g} className="text-xs flex items-center gap-1">
-                      <span className={cn("h-2 w-2 rounded-full inline-block",
-                        g === "thai" ? "bg-red-400" : g === "international" ? "bg-blue-400" : "bg-slate-400"
-                      )} />
-                      <span className="text-muted-foreground">{GROUP_CONFIG[g].label}</span>
-                      <span className="font-semibold">{((groupTotal / persTotal) * 100).toFixed(0)}%</span>
-                    </span>
-                  ) : null;
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Asset groups */}
-          {!assetsLoading && (["thai", "international", "other"] as const).map(g => {
-            const cfg        = GROUP_CONFIG[g];
-            const groupAssets = assets.filter(a => a.group === g);
-            const groupTotal  = groupAssets.reduce((s, a) => s + a.currentValue, 0);
-            const isAdding    = addingGroup === g;
-
-            return (
-              <div key={g} className={cn("rounded-xl border-2 p-4 space-y-3", cfg.borderColor, cfg.bg)}>
-                {/* Group header */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold text-sm">{cfg.label}</p>
-                    {groupTotal > 0 && <p className="text-xs text-muted-foreground">{thb(groupTotal)} · {groupAssets.filter(a => a.currentValue > 0).length} รายการ</p>}
+          {!assetsLoading && (
+            <>
+              {/* Allocation bar */}
+              {persTotal > 0 && (
+                <div className="rounded-xl border p-4 space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">สัดส่วนพอร์ต</p>
+                  <div className="h-2.5 rounded-full overflow-hidden flex gap-px bg-muted">
+                    {(["thai", "international", "other"] as const).map(g => {
+                      const gt = assets.filter(a => a.group === g).reduce((s, a) => s + a.currentValue, 0);
+                      const pct = (gt / persTotal) * 100;
+                      return pct > 0 ? (
+                        <div key={g} title={`${GROUP_CONFIG[g].label}: ${pct.toFixed(0)}%`}
+                          className={cn("h-full transition-all",
+                            g === "thai" ? "bg-red-400" : g === "international" ? "bg-blue-400" : "bg-slate-400"
+                          )} style={{ width: `${pct}%` }} />
+                      ) : null;
+                    })}
                   </div>
-                  <button
-                    onClick={() => { setAddingGroup(isAdding ? null : g); setAddForm({ name: "", emoji: "💰", currentValue: "" }); }}
-                    className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg bg-background/80 border hover:bg-muted transition-colors"
-                  >
-                    {isAdding ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-                    {isAdding ? "ยกเลิก" : "เพิ่มสินทรัพย์"}
-                  </button>
+                  <div className="flex flex-wrap gap-3">
+                    {(["thai", "international", "other"] as const).map(g => {
+                      const gt = assets.filter(a => a.group === g).reduce((s, a) => s + a.currentValue, 0);
+                      return gt > 0 ? (
+                        <span key={g} className="text-xs flex items-center gap-1.5">
+                          <span className={cn("h-2 w-2 rounded-full inline-block",
+                            g === "thai" ? "bg-red-400" : g === "international" ? "bg-blue-400" : "bg-slate-400"
+                          )} />
+                          <span className="text-muted-foreground">{GROUP_CONFIG[g].label}</span>
+                          <span className="font-semibold">{((gt / persTotal) * 100).toFixed(0)}%</span>
+                          <span className="text-muted-foreground">· {thb(gt)}</span>
+                        </span>
+                      ) : null;
+                    })}
+                    {portfolioWeightedReturn > 0 && (
+                      <span className="ml-auto text-xs flex items-center gap-1 text-emerald-600 font-semibold">
+                        <TrendingUp className="h-3 w-3" />
+                        ผลตอบแทนเฉลี่ย ~{portfolioWeightedReturn.toFixed(1)}%/ปี
+                      </span>
+                    )}
+                  </div>
                 </div>
+              )}
 
-                {/* Add form */}
-                {isAdding && (
-                  <div className="rounded-xl border bg-background/90 p-3 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground">เพิ่มสินทรัพย์ในกลุ่ม {cfg.label}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {PERSONAL_EMOJIS.map(e => (
-                        <button key={e}
-                          onClick={() => setAddForm(f => ({ ...f, emoji: e }))}
-                          className={cn("text-lg rounded-lg p-1 transition-all hover:scale-110", addForm.emoji === e ? "ring-2 ring-primary bg-primary/10" : "hover:bg-muted")}
-                        >{e}</button>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Input placeholder="ชื่อสินทรัพย์" value={addForm.name}
-                        onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} className="flex-1 h-8 text-sm" />
-                      <Input type="number" min={0} placeholder="มูลค่า (บาท)" value={addForm.currentValue}
-                        onChange={e => setAddForm(f => ({ ...f, currentValue: e.target.value }))} className="w-36 h-8 text-sm" />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" disabled={addSaving || !addForm.name.trim()}
-                        onClick={() => handleAdd(g)}>
-                        {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}บันทึก
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setAddingGroup(null)}>ยกเลิก</Button>
-                    </div>
-                  </div>
-                )}
+              {/* Group tabs */}
+              <div className="flex gap-1 border-b">
+                {(["thai", "international", "other"] as const).map(g => {
+                  const gt   = assets.filter(a => a.group === g).reduce((s, a) => s + a.currentValue, 0);
+                  const cnt  = assets.filter(a => a.group === g && a.currentValue > 0).length;
+                  const cfg  = GROUP_CONFIG[g];
+                  const active = groupTab === g;
+                  return (
+                    <button key={g} onClick={() => { setGroupTab(g); resetAddForm(); }}
+                      className={cn(
+                        "flex-1 flex flex-col items-center gap-0.5 px-2 py-2.5 text-xs font-semibold border-b-2 transition-all",
+                        active
+                          ? "border-primary text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                      )}>
+                      <span>{cfg.label}</span>
+                      {cnt > 0 && (
+                        <span className={cn("text-[10px] px-1.5 rounded-full font-medium",
+                          active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+                          {cnt} · {thb(gt)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
 
-                {/* Asset cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {groupAssets.map(asset => (
-                    <div key={asset.id} className={cn(
-                      "flex items-center gap-2 rounded-xl border bg-background/80 px-3 py-2.5 transition-all",
-                      asset.currentValue > 0 ? "border-border" : "border-dashed border-muted-foreground/30"
+              {/* Type-based market cards */}
+              <div className="flex justify-end mb-1">
+                <button
+                  onClick={() => handleAiSuggestRates(
+                    ASSET_TYPE_CATALOG.filter(t => t.group === groupTab).map(t => t.code),
+                    "portfolio"
+                  )}
+                  disabled={aiRateLoading}
+                  className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 border border-dashed border-primary/40 rounded-lg px-3 py-1.5 hover:bg-primary/5 transition-colors disabled:opacity-50">
+                  {aiRateLoading
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Sparkles className="h-3.5 w-3.5" />}
+                  AI ประมาณผลตอบแทน
+                </button>
+              </div>
+              <div className="space-y-3">
+                {ASSET_TYPE_CATALOG.filter(t => t.group === groupTab).map(type => {
+                  const stockAssets  = assets.filter(a => a.assetType === type.code && a.ticker);
+                  const lumpAsset    = assets.find(a => a.assetType === type.code && !a.ticker);
+                  const typeTotal    = assets.filter(a => a.assetType === type.code).reduce((s, a) => s + a.currentValue, 0);
+                  const isAddingHere = activeAddCode === type.code;
+                  const currentRate  = typeRates[type.code] ?? 0;
+                  return (
+                    <div key={type.code} className={cn(
+                      "rounded-xl border bg-card overflow-hidden",
+                      typeTotal > 0 ? "border-border shadow-sm" : "border-muted-foreground/20"
                     )}>
-                      <span className="text-xl shrink-0">{asset.emoji}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{asset.name}</p>
+                      {/* Card header */}
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <span className="text-2xl shrink-0">{type.emoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold leading-tight">{type.label}</p>
+                          <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{type.desc}</p>
+                        </div>
+                        {/* Expected return % input */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Input
+                            type="number" min={0} max={100} step="0.5"
+                            className="h-7 w-16 text-xs text-center px-1 border-dashed"
+                            placeholder="0"
+                            value={currentRate || ""}
+                            onChange={e => handleReturnRateChange(type.code, parseFloat(e.target.value) || 0)}
+                            title="ผลตอบแทนคาดหวัง %/ปี"
+                          />
+                          <span className="text-[10px] text-muted-foreground">%/ปี</span>
+                        </div>
+                        {typeTotal > 0 && (
+                          <span className="text-sm font-semibold shrink-0">{thb(typeTotal)}</span>
+                        )}
+                      </div>
+
+                      {/* Individual instruments */}
+                      {stockAssets.length > 0 && (
+                        <div className="border-t divide-y">
+                          {stockAssets.map(asset => {
+                            const isEditing = editingId === asset.id;
+                            return (
+                              <div key={asset.id} className="px-4 py-2.5 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    {asset.ticker && (
+                                      <span className="inline-block font-mono text-xs font-bold bg-muted px-1.5 py-0.5 rounded mr-1.5">{asset.ticker}</span>
+                                    )}
+                                    <span className="text-sm font-medium">{asset.name}</span>
+                                    {!isEditing && asset.units != null && asset.avgCostPerUnit != null && (
+                                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                                        {Number(asset.units).toLocaleString("th-TH")} หน่วย · ฿{Number(asset.avgCostPerUnit).toLocaleString("th-TH")}/หน่วย
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-xs text-muted-foreground">฿</span>
+                                    <Input type="number" min={0}
+                                      className="h-7 w-24 text-sm bg-muted/40 border-0 focus-visible:ring-1 rounded-lg px-2"
+                                      value={asset.currentValue || ""} placeholder="0"
+                                      onChange={e => handleValueChange(asset.id, parseFloat(e.target.value) || 0)}
+                                    />
+                                  </div>
+                                  <button onClick={() => isEditing ? setEditingId(null) : openEdit(asset)}
+                                    className={cn("p-1 rounded transition-colors shrink-0",
+                                      isEditing ? "text-primary" : "text-muted-foreground/40 hover:text-foreground")}
+                                    title="แก้ไข">
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button onClick={() => handleRemove(asset.id, asset.isBuiltIn)}
+                                    className="p-1 text-muted-foreground/40 hover:text-destructive transition-colors rounded shrink-0">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                {isEditing && (
+                                  <div className="ml-2 pl-3 border-l-2 border-primary/20 space-y-2 pb-1">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div className="space-y-1">
+                                        <Label className="text-xs font-medium">จำนวน (หน่วย/หุ้น)</Label>
+                                        <Input type="number" min={0} placeholder="0" value={editUnits}
+                                          onChange={e => setEditUnits(e.target.value)} className="h-8 text-sm" />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label className="text-xs font-medium">ต้นทุนเฉลี่ย/หน่วย (฿)</Label>
+                                        <Input type="number" min={0} placeholder="0" value={editCost}
+                                          onChange={e => setEditCost(e.target.value)} className="h-8 text-sm" />
+                                      </div>
+                                    </div>
+                                    {editUnits && editCost && parseFloat(editUnits) > 0 && parseFloat(editCost) > 0 && (
+                                      <p className="text-xs text-muted-foreground">
+                                        ต้นทุนรวม:{" "}
+                                        <span className="font-semibold text-foreground">
+                                          ฿{(parseFloat(editUnits) * parseFloat(editCost)).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                      </p>
+                                    )}
+                                    <div className="flex gap-2">
+                                      <Button size="sm" disabled={editSaving} onClick={() => handleEditSave(asset.id)}>
+                                        {editSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                                        บันทึก
+                                      </Button>
+                                      <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>ยกเลิก</Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Lump sum row — always available for quick total entry */}
+                      <div className="border-t px-4 py-3 flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
+                          {stockAssets.length > 0 ? "ก้อนอื่น ฿" : "ยอดรวม ฿"}
+                        </span>
                         <Input
                           type="number" min={0}
-                          className="h-7 text-sm mt-1 bg-transparent border-0 px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                          value={asset.currentValue || ""}
-                          placeholder="มูลค่า (บาท)"
-                          onChange={e => handleValueChange(asset.id, parseFloat(e.target.value) || 0)}
+                          className="h-8 text-sm flex-1"
+                          placeholder={stockAssets.length > 0 ? "0 — ลงทุนรวมเพิ่มเติม" : "0 — หรือเพิ่มรายหุ้นด้านล่าง"}
+                          key={`lump-${type.code}-${lumpAsset?.id ?? "new"}`}
+                          defaultValue={lumpAsset?.currentValue || ""}
+                          onChange={e => handleLumpSumChange(type, parseFloat(e.target.value) || 0)}
                         />
+                        {lumpAsset && (
+                          <button onClick={() => handleRemove(lumpAsset.id, false)}
+                            className="p-1 text-muted-foreground/40 hover:text-destructive transition-colors rounded shrink-0">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
-                      <button
-                        onClick={() => handleRemove(asset.id, asset.isBuiltIn)}
-                        className="text-muted-foreground/50 hover:text-destructive transition-colors p-1 shrink-0"
-                        title={asset.isBuiltIn ? "ตั้งค่าเป็น 0" : "ลบออก"}
-                      >
-                        {asset.isBuiltIn ? <X className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
-                      </button>
+
+                      {/* Per-card inline add form */}
+                      <div className="border-t px-4 py-2.5">
+                        {isAddingHere ? (
+                          <div className="space-y-3 pt-0.5">
+                            {/* Search step */}
+                            {addFormStep === "search" && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-semibold flex-1 text-muted-foreground">
+                                    {type.code === "custom" ? "ชื่อสินทรัพย์" : `ค้นหา${type.label}`}
+                                  </p>
+                                  <button onClick={resetAddForm} className="text-muted-foreground hover:text-foreground">
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                {type.code === "custom" ? (
+                                  <>
+                                    <Input autoFocus
+                                      placeholder="เช่น หุ้น XYZ, Bitcoin wallet, ที่ดิน"
+                                      value={customName} onChange={e => setCustomName(e.target.value)}
+                                      className="h-9 text-sm" />
+                                    <Button size="sm" disabled={!customName.trim()}
+                                      onClick={() => setAddFormStep("details")}>ถัดไป →</Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="relative">
+                                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                      <Input autoFocus placeholder={`เช่น ${type.desc}`}
+                                        value={searchQ}
+                                        onChange={e => handleSearchChange(e.target.value, type.code)}
+                                        className="h-9 text-sm pl-8" />
+                                      {searchLoading && (
+                                        <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                      )}
+                                    </div>
+                                    {searchResults.length > 0 && (
+                                      <div className="border rounded-lg divide-y overflow-hidden max-h-44 overflow-y-auto">
+                                        {searchResults.map(r => (
+                                          <button key={r.id}
+                                            onClick={() => { setPickedInstrument(r); setAddFormStep("details"); }}
+                                            className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/60 transition-colors">
+                                            <span className="font-mono text-xs font-bold shrink-0">{r.ticker}</span>
+                                            <span className="text-xs text-muted-foreground truncate flex-1">{r.nameTh ?? r.nameEn}</span>
+                                            {r.exchange && <span className="text-[10px] text-muted-foreground shrink-0">{r.exchange}</span>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {!searchLoading && searchQ.trim().length > 0 && searchResults.length === 0 && (
+                                      <div className="text-center space-y-1.5 py-1">
+                                        <p className="text-xs text-muted-foreground">ไม่พบใน catalog</p>
+                                        <button
+                                          onClick={() => { setCustomName(searchQ.trim()); setAddFormStep("details"); }}
+                                          className="inline-flex items-center gap-1.5 text-xs text-primary border border-dashed border-primary/40 rounded-lg px-3 py-1.5 hover:bg-primary/5 transition-colors"
+                                        >
+                                          <Plus className="h-3 w-3" />
+                                          ใช้ &ldquo;{searchQ.trim()}&rdquo; เป็นชื่อ
+                                        </button>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Details step */}
+                            {addFormStep === "details" && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  {type.code !== "custom" && (
+                                    <button onClick={() => { setAddFormStep("search"); setPickedInstrument(null); }}
+                                      className="text-muted-foreground hover:text-foreground shrink-0">
+                                      <ChevronLeft className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold leading-tight truncate">
+                                      {pickedInstrument
+                                        ? `${pickedInstrument.ticker} – ${pickedInstrument.nameTh ?? pickedInstrument.nameEn ?? pickedInstrument.ticker}`
+                                        : customName || type.label}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground">{type.label}</p>
+                                  </div>
+                                  <button onClick={resetAddForm} className="text-muted-foreground hover:text-foreground shrink-0">
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <Label className="text-xs font-medium">จำนวน (หน่วย/หุ้น)</Label>
+                                    <Input type="number" min={0} placeholder="0"
+                                      value={addUnits} onChange={e => setAddUnits(e.target.value)}
+                                      className="h-8 text-sm" />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-xs font-medium">ต้นทุนเฉลี่ย/หน่วย (฿)</Label>
+                                    <Input type="number" min={0} placeholder="0"
+                                      value={addAvgCost} onChange={e => setAddAvgCost(e.target.value)}
+                                      className="h-8 text-sm" />
+                                  </div>
+                                </div>
+                                {addUnits && addAvgCost && parseFloat(addUnits) > 0 && parseFloat(addAvgCost) > 0 && (
+                                  <p className="text-xs text-muted-foreground">
+                                    ต้นทุนรวม:{" "}
+                                    <span className="font-semibold text-foreground">
+                                      ฿{(parseFloat(addUnits) * parseFloat(addAvgCost)).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  </p>
+                                )}
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-medium">มูลค่าปัจจุบัน (฿) — ถ้าต่างจากต้นทุน</Label>
+                                  <Input type="number" min={0}
+                                    placeholder={addUnits && addAvgCost ? String(parseFloat(addUnits || "0") * parseFloat(addAvgCost || "0")) : "0"}
+                                    value={addValue} onChange={e => setAddValue(e.target.value)}
+                                    className="h-8 text-sm" />
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button size="sm" className="flex-1" disabled={addSaving}
+                                    onClick={() => handleAdd(type)}>
+                                    {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
+                                    เพิ่ม
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={resetAddForm}>ยกเลิก</Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <button onClick={() => handleStartAdd(type)}
+                            className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
+                            <Plus className="h-3.5 w-3.5" /> เพิ่มรายหุ้น / กองทุน
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  ))}
-                </div>
-
-                {groupAssets.length === 0 && !isAdding && (
-                  <p className="text-xs text-muted-foreground text-center py-2">ยังไม่มีสินทรัพย์ — กด "เพิ่มสินทรัพย์" เพื่อเริ่มต้น</p>
-                )}
+                  );
+                })}
               </div>
-            );
-          })}
 
-          {!assetsLoading && (
-            <Card className="bg-muted/30">
-              <CardContent className="pt-4 pb-4 text-sm space-y-1">
-                <p className="font-semibold">💡 อัปเดตมูลค่าพอร์ตทุกเดือน</p>
-                <p className="text-muted-foreground text-xs">ระบบใช้ข้อมูลนี้คำนวณแผนเกษียณและฉายภาพความมั่งคั่งระยะยาว</p>
-              </CardContent>
-            </Card>
+              <Card className="bg-muted/30">
+                <CardContent className="pt-4 pb-4 text-sm space-y-1">
+                  <p className="font-semibold">💡 อัปเดตมูลค่าพอร์ตทุกเดือน</p>
+                  <p className="text-muted-foreground text-xs">ระบบใช้ข้อมูลนี้คำนวณแผนเกษียณและฉายภาพความมั่งคั่งระยะยาว</p>
+                </CardContent>
+              </Card>
+            </>
           )}
         </div>
       )}
@@ -688,6 +1365,23 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
   const emergencyMonths = p.monthlyExpenses > 0 ? p.emergencyFundAmount / p.monthlyExpenses : 0;
   const dtiColor = dti === 0 ? "" : dti < 30 ? "text-emerald-600" : dti < 50 ? "text-amber-600" : "text-red-500";
   const efColor  = emergencyMonths === 0 ? "" : emergencyMonths < 3 ? "text-red-500" : emergencyMonths < 6 ? "text-amber-600" : "text-emerald-600";
+
+  // Debt interest calculations
+  const interestRate    = p.debtInterestRate ?? 0; // annual %
+  const annualInterest  = p.totalDebt > 0 && interestRate > 0 ? p.totalDebt * interestRate / 100 : 0;
+  const monthlyInterest = annualInterest / 12;
+  // Simple amortization payoff estimate: months = -ln(1 - r*B/M) / ln(1+r)
+  //   where r = monthly rate, B = balance, M = monthly payment
+  const monthlyRate = interestRate / 100 / 12;
+  let debtFreeMonths: number | null = null;
+  if (p.totalDebt > 0 && p.monthlyDebtPayment > 0) {
+    if (interestRate <= 0) {
+      debtFreeMonths = Math.ceil(p.totalDebt / p.monthlyDebtPayment);
+    } else if (p.monthlyDebtPayment > monthlyInterest) {
+      debtFreeMonths = Math.ceil(-Math.log(1 - monthlyRate * p.totalDebt / p.monthlyDebtPayment) / Math.log(1 + monthlyRate));
+    }
+  }
+
   return (
     <div className="space-y-4">
       {(p.totalDebt > 0 || p.emergencyFundAmount > 0) && (
@@ -695,6 +1389,8 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
           <SummaryPill label="หนี้สินรวม" value={thb(p.totalDebt)} color={p.totalDebt > 0 ? "text-amber-600" : ""} />
           <SummaryPill label="ผ่อนชำระ/เดือน" value={thb(p.monthlyDebtPayment)} />
           {dti > 0 && <SummaryPill label="สัดส่วนหนี้/รายได้" value={`${dti.toFixed(1)}%`} color={dtiColor} />}
+          {annualInterest > 0 && <SummaryPill label="ดอกเบี้ย/ปี" value={thb(annualInterest)} color="text-red-500" />}
+          {debtFreeMonths !== null && <SummaryPill label="ปลดหนี้ใน" value={debtFreeMonths <= 120 ? `${debtFreeMonths} เดือน` : `${(debtFreeMonths/12).toFixed(0)} ปี`} />}
           <SummaryPill label="เงินสำรองฉุกเฉิน" value={thb(p.emergencyFundAmount)} />
           {emergencyMonths > 0 && <SummaryPill label="ครอบคลุม" value={`${emergencyMonths.toFixed(1)} เดือน`} color={efColor} />}
         </div>
@@ -702,6 +1398,16 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
       <SectionCard title="ภาระหนี้สิน" icon={AlertTriangle} iconColor="text-amber-500">
         <NumField label="หนี้สินรวมทั้งหมด (บาท)" value={p.totalDebt} onChange={v => upd("totalDebt", v)} hint="บ้าน รถ บัตรเครดิต สินเชื่อส่วนตัว" />
         <NumField label="ยอดผ่อนชำระ/เดือน (บาท)" value={p.monthlyDebtPayment} onChange={v => upd("monthlyDebtPayment", v)} hint="ทุกบัญชีรวมกัน" />
+        <NumField
+          label="อัตราดอกเบี้ยเฉลี่ย (%/ปี)"
+          value={p.debtInterestRate ?? 0}
+          onChange={v => upd("debtInterestRate", v)}
+          hint={
+            annualInterest > 0
+              ? `ดอกเบี้ยต่อปีประมาณ ${thb(annualInterest)}${debtFreeMonths ? ` · ปลดหนี้ใน ~${debtFreeMonths} เดือน` : ""}`
+              : "บัตรเครดิต ~20%/ปี • สินเชื่อส่วนบุคคล ~15-25%/ปี • บ้าน ~3-7%/ปี • รถ ~3-6%/ปี"
+          }
+        />
       </SectionCard>
       <SectionCard title="เงินออมและสำรอง" icon={Wallet} iconColor="text-emerald-500">
         <NumField label="เงินสำรองฉุกเฉิน (บาท)" value={p.emergencyFundAmount} onChange={v => upd("emergencyFundAmount", v)} hint="เงินที่พร้อมถอนใช้ได้ทันที" />
@@ -779,6 +1485,7 @@ export default function MyDataPage() {
           otherInvestAmount: Number(d.otherInvestAmount ?? 0),
           totalDebt: Number(d.totalDebt ?? 0),
           monthlyDebtPayment: Number(d.monthlyDebtPayment ?? 0),
+          debtInterestRate: Number(d.debtInterestRate ?? 0),
           emergencyFundAmount: Number(d.emergencyFundAmount ?? 0),
           monthlyExpenses: Number(d.monthlyExpenses ?? 0),
         });

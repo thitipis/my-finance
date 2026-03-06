@@ -1,21 +1,129 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
-import { Sparkles, Send, Lock, User, Bot, Loader2, Settings2, ChevronDown, ChevronUp, Save } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Sparkles, Send, Square, Lock, Loader2, Settings2, Save, Plus,
+  Eye, EyeOff, History, Trash2, X, Bot,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = {
+  role: "user" | "assistant";
+  content: string;          // full text sent to AI
+  displayContent?: string;  // optional clean card shown in the bubble
+  topicIcon?: string;
+  topicLabel?: string;
+};
 
-const STARTER_PROMPTS = [
-  "ฉันควรลงทุนใน SSF หรือ RMF มากกว่ากัน?",
-  "ช่วยวางแผนภาษีให้หน่อยได้ไหม?",
-  "RMF กับ SSF ต่างกันอย่างไร?",
-  "ประกันแบบไหนเหมาะกับฉัน?",
+// ─── Provider / model catalogue ───────────────────────────────────────────────
+type Provider = "gemini" | "openai" | "ollama";
+
+const PROVIDERS: { value: Provider; label: string; logo: string }[] = [
+  { value: "gemini", label: "Google Gemini",  logo: "✦" },
+  { value: "openai", label: "OpenAI",         logo: "⬡" },
+  { value: "ollama", label: "Ollama (Local)",  logo: "🦙" },
 ];
+
+const MODELS: Record<Provider, { value: string; label: string }[]> = {
+  gemini: [
+    { value: "gemini-2.0-flash",      label: "Gemini 2.0 Flash"       },
+    { value: "gemini-2.0-flash-lite", label: "Gemini 2.0 Flash Lite"  },
+    { value: "gemini-1.5-flash",      label: "Gemini 1.5 Flash"       },
+    { value: "gemini-1.5-pro",        label: "Gemini 1.5 Pro"         },
+  ],
+  openai: [
+    { value: "gpt-4o",        label: "GPT-4o"        },
+    { value: "gpt-4o-mini",   label: "GPT-4o Mini"   },
+    { value: "gpt-4-turbo",   label: "GPT-4 Turbo"   },
+    { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
+  ],
+  ollama: [
+    { value: "llama3",      label: "Llama 3"      },
+    { value: "llama3.1",    label: "Llama 3.1"    },
+    { value: "llama3.2",    label: "Llama 3.2"    },
+    { value: "mistral",     label: "Mistral"      },
+    { value: "phi3",        label: "Phi-3"        },
+    { value: "gemma2",      label: "Gemma 2"      },
+    { value: "deepseek-r1", label: "DeepSeek R1"  },
+    { value: "qwen2.5",     label: "Qwen 2.5"     },
+  ],
+};
+
+type StarterTopic = "tax" | "ssf_rmf" | "portfolio" | "insurance";
+
+const STARTER_TOPICS: { icon: string; label: string; topic: StarterTopic }[] = [
+  { icon: "💰", label: "วางแผนภาษี",     topic: "tax"       },
+  { icon: "📈", label: "SSF & RMF",      topic: "ssf_rmf"   },
+  { icon: "📊", label: "วิเคราะห์พอร์ต", topic: "portfolio" },
+  { icon: "🛡️", label: "ประกันของฉัน",  topic: "insurance" },
+];
+
+// Short human-readable summary shown in the user bubble (not the full prompt)
+const TOPIC_DISPLAY: Record<StarterTopic, string> = {
+  tax:       "ขอให้วิเคราะห์และวางแผนภาษีปีนี้ตามข้อมูลการเงินของฉัน — ประมาณการภาษี, วงเงินลดหย่อนที่ยังใช้ได้, และลำดับความสำคัญของแต่ละช่องลดหย่อน",
+  ssf_rmf:   "ขอให้วิเคราะห์ SSF และ RMF สำหรับฉัน — วงเงินที่ยังลงทุนได้, ควรเลือกตัวไหนก่อน, ประหยัดภาษีได้เท่าไหร่, และกลยุทธ์ระยะยาว",
+  portfolio: "ขอให้วิเคราะห์พอร์ตการลงทุนของฉัน — สัดส่วนเหมาะกับความเสี่ยงไหม, ควร Rebalance อย่างไร, และควรลงทุนเพิ่มในสินทรัพย์ไหน",
+  insurance: "ขอให้วิเคราะห์ความคุ้มครองประกันที่มีอยู่ — เพียงพอไหม, ช่องว่างที่สำคัญคืออะไร, และควรปรับปรุงอะไรก่อน",
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildContextualPrompt(topic: StarterTopic, fp: any, risk: any, plan: any): string {
+  const fmt = (n: unknown) => Number(n ?? 0).toLocaleString("th-TH");
+  const riskLabel: Record<string, string> = {
+    conservative: "อนุรักษ์นิยม", moderate: "ปานกลาง", aggressive: "เน้นผลตอบแทนสูง",
+  };
+  const filingLabel: Record<string, string> = {
+    single: "โสด", married_no_income: "สมรส (คู่ไม่มีรายได้)",
+    married_separate: "สมรส (แยกยื่น)", married_joint: "สมรส (ยื่นรวม)",
+  };
+  const income = Number(fp?.annualSalary ?? 0);
+  const bonus  = Number(fp?.bonus ?? 0);
+
+  const profileBlock = fp ? `📋 ข้อมูลทางการเงินของฉัน:
+• รายได้: ${fmt(income)} บาท/ปี + โบนัส ${fmt(bonus)} บาท (รวม ${fmt(income + bonus)} บาท)
+• สถานภาพ: ${filingLabel[fp.filingStatus] ?? fp.filingStatus} | บุตร ${fp.numChildren ?? 0} คน | ดูแลพ่อแม่ ${fp.numParents ?? 0} คน
+• ประกันสังคม: ${fmt(fp.socialSecurity)} บาท/ปี | กองทุนสำรองฯ: ${fmt(fp.providentFundAmount)} บาท/ปี
+• RMF: ${fmt(fp.rmfAmount)} บาท | SSF: ${fmt(fp.ssfAmount)} บาท | Thai ESG: ${fmt(fp.thaiEsgAmount)} บาท
+• ประกันชีวิต: ${fmt(fp.lifeInsurancePremium)} บาท/ปี | ประกันสุขภาพ: ${fmt(fp.healthInsurancePremium)} บาท/ปี
+• ประกันสุขภาพพ่อแม่: ${fmt(fp.parentHealthInsurancePremium)} บาท/ปี | ประกันบำนาญ: ${fmt(fp.annuityInsurancePremium)} บาท/ปี
+• หุ้นไทย: ${fmt(fp.thaiStockAmount)} | หุ้นต่างประเทศ: ${fmt(fp.foreignStockAmount)} | ETF: ${fmt(fp.etfAmount)} | ทอง: ${fmt(fp.goldAmount)} | คริปโต: ${fmt(fp.cryptoAmount)} บาท\n\n` : "";
+
+  const riskLine = risk ? `• ระดับความเสี่ยงที่รับได้: ${riskLabel[risk.riskLevel] ?? risk.riskLevel} (คะแนน ${risk.score}/100)\n` : "";
+  const planLine = plan ? `• อายุ ${plan.currentAge ?? "?"} ปี → เกษียณอายุ ${plan.retirementAge ?? 60} ปี | ลงทุนเพิ่มได้ ${fmt(plan.monthlyInvestable)} บาท/เดือน | เงินออม ${fmt(plan.currentSavings)} บาท\n` : "";
+
+  switch (topic) {
+    case "tax":
+      return `${profileBlock}ขอให้ช่วยวิเคราะห์และวางแผนภาษีปีนี้:
+1. ประมาณการภาษีที่ต้องจ่าย (หรือได้คืน) ตามข้อมูลข้างต้น
+2. วงเงินลดหย่อนที่ยังใช้ได้อีกในแต่ละประเภท (RMF, SSF, Thai ESG, ประกัน ฯลฯ) — แสดงเป็นตัวเลขที่ขาดอยู่
+3. ลำดับความสำคัญในการนำเงินไปใส่ช่องลดหย่อนเพื่อประหยัดภาษีสูงสุด
+4. ถ้าใช้สิทธิครบทุกช่องที่แนะนำ จะประหยัดภาษีได้เพิ่มรวมเท่าไหร่?`;
+
+    case "ssf_rmf":
+      return `${profileBlock}ขอให้ช่วยวิเคราะห์ SSF และ RMF:
+1. คำนวณวงเงิน SSF และ RMF ที่ยังลงทุนได้อีกปีนี้ (ตามเพดานที่กฎหมายกำหนด)
+2. ระหว่าง SSF กับ RMF ควรเลือกอะไรก่อน? เพราะอะไร? (พิจารณาทั้ง tax benefit และ flexibility)
+3. คำนวณว่าถ้าลงทุนเพิ่มแต่ละตัว จะประหยัดภาษีได้เพิ่มเท่าไหร่?
+4. กลยุทธ์ระยะยาวที่เหมาะกับฉัน รวมถึงควรเลือก RMF ประเภทไหน (equity, balanced, fixed income)?`;
+
+    case "portfolio":
+      return `${profileBlock}${riskLine}${planLine}ขอให้ช่วยวิเคราะห์พอร์ตการลงทุน:
+1. สัดส่วน Asset Allocation ปัจจุบันเหมาะกับระดับความเสี่ยง "${riskLabel[risk?.riskLevel] ?? "ปานกลาง"}" ของฉันไหม?
+2. ควร Rebalance อย่างไร? บอก % เป้าหมายของแต่ละสินทรัพย์
+3. สินทรัพย์ที่ควรเพิ่ม/ลด พร้อมเหตุผล
+4. ถ้าลงทุนเพิ่ม ${fmt(plan?.monthlyInvestable ?? 0)} บาท/เดือน ควรแบ่งไปแต่ละสินทรัพย์เท่าไหร่?`;
+
+    case "insurance":
+      return `${profileBlock}ขอให้ช่วยวิเคราะห์ความคุ้มครองประกัน:
+1. ประกันชีวิตที่ควรมีตามรายได้และภาระของฉัน (คำนวณจาก income replacement method หรือ DIME)
+2. ประกันสุขภาพที่มีอยู่ ${fmt(fp?.healthInsurancePremium)} บาท/ปี เพียงพอไหม? ควรซื้อเพิ่มไหม?
+3. ประกันบำนาญ (annuity) ${fmt(fp?.annuityInsurancePremium)} บาท/ปี ช่วยแผนเกษียณได้แค่ไหน?
+4. ช่องว่างความคุ้มครองที่สำคัญที่สุดของฉัน คืออะไร? ควรเริ่มแก้อย่างไรก่อน?`;
+  }
+}
 
 const TONE_LABELS: Record<number, string> = {
   1: "อ่อนโยน / ให้กำลังใจ",
@@ -25,87 +133,422 @@ const TONE_LABELS: Record<number, string> = {
   5: "ตรงมาก / ไม่อ้อมค้อม",
 };
 
-function LockedOverlay() {
+// ─── Chat Session Management ──────────────────────────────────────────────────
+type ChatSession = {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+const MAX_SESSIONS = 40;
+const sessionsKey = (uid: string) => `myfinance-sessions-${uid}`;
+
+function loadSessionsFromStorage(uid: string): ChatSession[] {
+  try { return JSON.parse(localStorage.getItem(sessionsKey(uid)) ?? "[]"); } catch { return []; }
+}
+function saveSessionsToStorage(uid: string, sessions: ChatSession[]) {
+  localStorage.setItem(sessionsKey(uid), JSON.stringify(sessions.slice(0, MAX_SESSIONS)));
+}
+function makeTitleFromMsg(msg: Message): string {
+  if (msg.topicLabel) return `${msg.topicIcon ?? ""} ${msg.topicLabel}`.trim();
+  const clean = msg.content.replace(/📋[\s\S]*?\n\n/, "").trim();
+  return clean.length > 48 ? clean.slice(0, 48) + "…" : clean || "บทสนทนาใหม่";
+}
+function relativeDate(ts: number): string {
+  const diff = Date.now() - ts;
+  const d = 86400000;
+  if (diff < d)       return "วันนี้";
+  if (diff < 2 * d)   return "เมื่อวาน";
+  if (diff < 7 * d)   return `${Math.floor(diff / d)} วันที่แล้ว`;
+  return new Date(ts).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+}
+
+function ThinkingIndicator({ model }: { model: string }) {
+  const steps = [
+    "กำลังคิด...",
+    "กำลังวิเคราะห์ข้อมูล...",
+    "กำลังคำนวณ...",
+    "กำลังเตรียมคำตอบ...",
+    "กำลังตรวจสอบตัวเลข...",
+  ];
+  const [step, setStep] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const t1 = setInterval(() => setStep(s => (s + 1) % steps.length), 2500);
+    const t2 = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => { clearInterval(t1); clearInterval(t2); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
-    <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center z-10 rounded-lg gap-4 text-center p-8">
-      <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-        <Lock className="h-8 w-8 text-primary" />
+    <div className="space-y-1.5 pt-1">
+      <div className="flex gap-1 items-center">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce [animation-delay:0ms]" />
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce [animation-delay:150ms]" />
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce [animation-delay:300ms]" />
       </div>
-      <h2 className="text-xl font-bold">ฟีเจอร์ Premium</h2>
-      <p className="text-muted-foreground text-sm max-w-xs">
-        AI Advisor ที่ขับเคลื่อนด้วย Google Gemini ให้คำแนะนำด้านภาษีและการเงินส่วนตัว เฉพาะสมาชิก Premium เท่านั้น
-      </p>
-      <Button>อัปเกรดเป็น Premium</Button>
-      <p className="text-xs text-muted-foreground">เริ่มต้นเพียง ฿99 / เดือน</p>
+      <p className="text-xs text-muted-foreground">{steps[step]}</p>
+      {elapsed >= 4 && (
+        <p className="text-xs text-muted-foreground/50">{elapsed}s · {model}</p>
+      )}
     </div>
   );
+}
+
+// ─── Module-level stream state (survives page transitions / component unmounts) ────────────────
+interface GStreamState {
+  abort: AbortController;
+  sessionId: string;
+  accumulated: string;
+  done: boolean;
+  listener: ((chunk: string, isDone: boolean) => void) | null;
+}
+let gStream: GStreamState | null = null;
+
+function runStream(body: object, sessionId: string): GStreamState {
+  const abort = new AbortController();
+  const g: GStreamState = { abort, sessionId, accumulated: "", done: false, listener: null };
+  gStream = g;
+  void (async () => {
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body), signal: abort.signal,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        g.accumulated = err.error ?? "เกิดข้อผิดพลาด";
+        g.listener?.("" , true); return;
+      }
+      g.listener?.("__START__", false);
+      const reader = res.body!.getReader();
+      const dec = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = dec.decode(value, { stream: true });
+        g.accumulated += chunk;
+        g.listener?.(chunk, false);
+      }
+    } catch (e) {
+      if ((e as Error).name !== "AbortError" && !g.accumulated) {
+        g.accumulated = "ขออภัย ไม่สามารถเชื่อมต่อได้ในขณะนี้";
+      }
+    } finally {
+      g.done = true;
+      if (gStream === g) gStream = null;
+      g.listener?.("" , true);
+    }
+  })();
+  return g;
 }
 
 export default function AiChatPage() {
   const { data: session, status } = useSession();
   const isPremium = (session?.user as { tier?: string })?.tier === "premium";
 
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", content: "สวัสดีครับ! ผมคือ AI Advisor ของ MyFinance ยินดีให้คำแนะนำด้านภาษีและการวางแผนการเงินส่วนตัวครับ 😊\n\nผมรับทราบข้อมูลการเงินของคุณจากหน้า \"ข้อมูลของฉัน\" และจะให้คำแนะนำตามระดับความเสี่ยงที่คุณประเมินไว้ครับ" },
-  ]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const endRef = useRef<HTMLDivElement>(null);
+  const [messages, setMessages]           = useState<Message[]>([]);
+  const [input, setInput]                 = useState("");
+  const [loading, setLoading]             = useState(false);
+  const [settingsOpen, setSettingsOpen]   = useState(false);
 
-  // AI Settings
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [toneLevel, setToneLevel] = useState(3);
-  const [customPrompt, setCustomPrompt] = useState("");
-  const [settingsSaved, setSettingsSaved] = useState(false);
+  // Tone & context
+  const [toneLevel, setToneLevel]         = useState(3);
+  const [customPrompt, setCustomPrompt]   = useState("");
+
+  // Model / provider
+  const [provider, setProvider]           = useState<Provider>("gemini");
+  const [model, setModel]                 = useState("gemini-2.0-flash");
+  const [apiToken, setApiToken]           = useState("");
+  const [tokenMasked, setTokenMasked]     = useState<string | null>(null);
+  const [hasToken, setHasToken]           = useState(false);
+  const [showToken, setShowToken]         = useState(false);
+  const [ollamaUrl, setOllamaUrl]         = useState("http://ollama:11434");
+  const [customModel, setCustomModel]     = useState("");
+
+  const [settingsSaved, setSettingsSaved]   = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [saveError, setSaveError]           = useState("");
+  const [loadingTopic, setLoadingTopic]     = useState<StarterTopic | null>(null);
+  const [isStreaming, setIsStreaming]        = useState(false);
+  const [responseLength, setResponseLength] = useState<"short" | "medium" | "long">("medium");
+  const [sessions, setSessions]             = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen]       = useState(true);
 
+  const endRef           = useRef<HTMLDivElement>(null);
+  const textareaRef       = useRef<HTMLTextAreaElement>(null);
+  const sessionIdRef      = useRef<string | null>(null);
+  const reconnectedRef    = useRef(false);
+  const hasMessages       = messages.length > 0;
+
+  // ── Load settings ──────────────────────────────────────────────────────────
   useEffect(() => {
-    fetch("/api/user/ai-settings").then(r => r.json()).then(({ data }) => {
-      if (data) {
+    fetch("/api/user/ai-settings")
+      .then(r => r.json())
+      .then(({ data }) => {
+        if (!data) return;
         setToneLevel(data.toneLevel ?? 3);
         setCustomPrompt(data.customPrompt ?? "");
-      }
-    }).catch(() => {});
+        const p: Provider = (data.aiProvider as Provider) ?? "gemini";
+        setProvider(p);
+        setModel(data.aiModel ?? MODELS[p][0].value);
+        setHasToken(data.hasToken ?? false);
+        setTokenMasked(data.apiTokenMasked ?? null);
+        setOllamaUrl(data.ollamaBaseUrl ?? "http://ollama:11434");
+      })
+      .catch(() => {});
   }, []);
 
+  // Load sessions on login and restore the most recent one
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (status !== "authenticated" || !session?.user?.id) return;
+    const loaded = loadSessionsFromStorage(session.user.id);
+    setSessions(loaded);
+    if (loaded[0]) {
+      setCurrentSessionId(loaded[0].id);
+      sessionIdRef.current = loaded[0].id;
+      setMessages(loaded[0].messages);
+    }
+    // Restore history panel preference
+    const pref = localStorage.getItem(`myfinance-history-open-${session.user.id}`);
+    if (pref !== null) setHistoryOpen(pref === "1");
+    // Restore response length preference
+    const lenPref = localStorage.getItem(`myfinance-resplen-${session.user.id}`);
+    if (lenPref === "short" || lenPref === "medium" || lenPref === "long") setResponseLength(lenPref);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
+  // Reconnect to an in-progress stream when the user navigates back to this page
+  useEffect(() => {
+    if (!currentSessionId || reconnectedRef.current) return;
+    reconnectedRef.current = true;
+    const g = gStream;
+    if (!g || g.done || g.sessionId !== currentSessionId) return;
+    setIsStreaming(true);
+    setMessages(prev => {
+      if (!prev.length) return prev;
+      const msgs = [...prev];
+      if (msgs[msgs.length - 1].role === "assistant") {
+        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+      }
+      return msgs;
+    });
+    g.listener = (chunk, done) => {
+      if (chunk === "__START__") return;
+      if (done) {
+        setMessages(prev => {
+          const msgs = [...prev];
+          if (msgs[msgs.length - 1]?.role === "assistant") {
+            msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+          }
+          return msgs;
+        });
+        setIsStreaming(false);
+        return;
+      }
+      setMessages(prev => {
+        const msgs = [...prev];
+        if (msgs[msgs.length - 1]?.role === "assistant") {
+          msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+        }
+        return msgs;
+      });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSessionId]);
+
+  // Persist current session whenever messages change
+  useEffect(() => {
+    if (!session?.user?.id || messages.length === 0) return;
+    const sessId = sessionIdRef.current;
+    if (!sessId) return;
+    setSessions(prev => {
+      const existing = prev.find(s => s.id === sessId);
+      const firstUser = messages.find(m => m.role === "user");
+      const title = existing?.title ?? (firstUser ? makeTitleFromMsg(firstUser) : "บทสนทนาใหม่");
+      const updated: ChatSession = {
+        id: sessId, title, messages,
+        createdAt: existing?.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+      };
+      const next = [updated, ...prev.filter(s => s.id !== sessId)];
+      saveSessionsToStorage(session.user.id!, next);
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
+  // Auto-scroll
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 180) + "px"; }
+  }, [input]);
+
+  const handleProviderChange = (p: Provider) => {
+    setProvider(p);
+    setModel(MODELS[p][0].value);
+    setCustomModel("");
+  };
+
+  const effectiveModel = (provider === "ollama" && customModel.trim()) ? customModel.trim() : model;
+
+  // ── Save settings ──────────────────────────────────────────────────────────
   const saveSettings = useCallback(async () => {
     setSettingsSaving(true);
+    setSaveError("");
     try {
-      await fetch("/api/user/ai-settings", {
+      const body: Record<string, unknown> = {
+        toneLevel,
+        customPrompt: customPrompt || null,
+        aiProvider: provider,
+        aiModel: effectiveModel,
+        ollamaBaseUrl: ollamaUrl || null,
+      };
+      if (apiToken.trim()) body.apiToken = apiToken.trim();
+
+      const res = await fetch("/api/user/ai-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toneLevel, customPrompt: customPrompt || null }),
+        body: JSON.stringify(body),
       });
+      const { data, error } = await res.json();
+      if (!res.ok) { setSaveError(error ?? "บันทึกไม่สำเร็จ"); return; }
+      setHasToken(data.hasToken);
+      setTokenMasked(data.apiTokenMasked);
+      setApiToken("");
       setSettingsSaved(true);
-      setTimeout(() => setSettingsSaved(false), 2000);
+      setTimeout(() => setSettingsSaved(false), 2500);
+    } catch {
+      setSaveError("เกิดข้อผิดพลาดในการบันทึก");
     } finally {
       setSettingsSaving(false);
     }
-  }, [toneLevel, customPrompt]);
+  }, [toneLevel, customPrompt, provider, effectiveModel, ollamaUrl, apiToken]);
 
-  const send = async (text: string) => {
-    if (!text.trim() || !isPremium) return;
-    const userMsg: Message = { role: "user", content: text };
-    setMessages(prev => [...prev, userMsg]);
+  // ── Session management ─────────────────────────────────────────────────────
+  const newChat = () => {
+    const id = crypto.randomUUID();
+    setCurrentSessionId(id);
+    sessionIdRef.current = id;
+    setMessages([]);
+    setHistoryOpen(false);
+  };
+
+  const loadSession = (sess: ChatSession) => {
+    setCurrentSessionId(sess.id);
+    sessionIdRef.current = sess.id;
+    setMessages(sess.messages);
+    setHistoryOpen(false);
+  };
+
+  const deleteSession = (id: string) => {
+    if (!session?.user?.id) return;
+    setSessions(prev => {
+      const next = prev.filter(s => s.id !== id);
+      saveSessionsToStorage(session.user.id!, next);
+      return next;
+    });
+    if (id === currentSessionId) {
+      setCurrentSessionId(null);
+      sessionIdRef.current = null;
+      setMessages([]);
+    }
+  };
+
+  // ── Send message ───────────────────────────────────────────────────────────
+  const send = async (
+    text: string,
+    opts?: { displayContent?: string; topicIcon?: string; topicLabel?: string },
+  ) => {
+    if (!text.trim() || !isPremium || loading || isStreaming) return;
+    // Auto-create session on first message
+    if (!sessionIdRef.current) {
+      const id = crypto.randomUUID();
+      setCurrentSessionId(id);
+      sessionIdRef.current = id;
+    }
+    const userMsg: Message = { role: "user", content: text, ...opts };
+    const history = [...messages, userMsg];
+    setMessages(history);
     setInput("");
     setLoading(true);
-    try {
-      const res = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...messages, userMsg] }),
+
+    const sessId = sessionIdRef.current!;
+    const g = runStream({ messages: history, responseLength }, sessId);
+
+    g.listener = (chunk, done) => {
+      if (chunk === "__START__") {
+        setLoading(false);
+        setIsStreaming(true);
+        setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+        return;
+      }
+      if (done) {
+        setMessages(prev => {
+          const msgs = [...prev];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === "assistant") {
+            if (!last.content && g.accumulated) msgs[msgs.length - 1] = { ...last, content: g.accumulated };
+          } else if (g.accumulated) {
+            msgs.push({ role: "assistant", content: g.accumulated });
+          }
+          return msgs;
+        });
+        setLoading(false);
+        setIsStreaming(false);
+        return;
+      }
+      setMessages(prev => {
+        const msgs = [...prev];
+        if (msgs[msgs.length - 1]?.role === "assistant") {
+          msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+        }
+        return msgs;
       });
-      const data = await res.json();
-      setMessages(prev => [...prev, { role: "assistant", content: data.reply ?? "ขออภัย เกิดข้อผิดพลาด" }]);
+    };
+  };
+
+  // Stop AI generation
+  const stopGeneration = () => {
+    gStream?.abort.abort();
+    setLoading(false);
+    setIsStreaming(false);
+  };
+
+  // ── Smart starter prompts — fetch real data then build rich prompt ─────────
+  const sendSmartPrompt = async (topic: StarterTopic) => {
+    if (!isPremium || loading || loadingTopic) return;
+    setLoadingTopic(topic);
+    try {
+      const [fpRes, riskRes, planRes] = await Promise.all([
+        fetch("/api/user/financial-profile").then(r => r.json()),
+        fetch("/api/user/risk-assessment").then(r => r.json()),
+        fetch("/api/user/financial-plan").then(r => r.json()),
+      ]);
+      const prompt = buildContextualPrompt(
+        topic,
+        fpRes.data ?? null,
+        riskRes.data ?? null,
+        planRes.data ?? null,
+      );
+      const topicMeta = STARTER_TOPICS.find(t => t.topic === topic)!;
+      const displayContent = TOPIC_DISPLAY[topic];
+      setLoadingTopic(null);
+      await send(prompt, { displayContent, topicIcon: topicMeta.icon, topicLabel: topicMeta.label });
     } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "ขออภัย ไม่สามารถเชื่อมต่อได้ในขณะนี้" }]);
-    } finally {
-      setLoading(false);
+      setLoadingTopic(null);
     }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
   };
 
   if (status === "loading") return (
@@ -114,137 +557,448 @@ export default function AiChatPage() {
     </div>
   );
 
+  const activeProviderLabel = PROVIDERS.find(p => p.value === provider)?.label ?? provider;
+  const needsToken = provider === "gemini" || provider === "openai";
+
   return (
-    <div className="space-y-4 h-full flex flex-col">
-      <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Sparkles className="h-6 w-6 text-emerald-500" />
-          AI Advisor
-        </h1>
-        <Badge variant="secondary">Premium</Badge>
+    <div className="flex h-[calc(100dvh-8.5rem)] md:h-[calc(100dvh-4.5rem)]">
+
+      {/* ── History Sidebar ── */}
+      <div className={`shrink-0 border-r flex flex-col bg-background overflow-hidden transition-all duration-200 ${historyOpen ? "w-56" : "w-0"}`}>
+        <div className="shrink-0 flex items-center gap-2 px-3 py-3 border-b min-w-[14rem]">
+          <Bot className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-semibold flex-1 text-foreground">แชท</span>
+          <button
+            onClick={newChat}
+            className="flex items-center gap-1 text-xs bg-primary/10 text-primary rounded-lg px-2.5 py-1 hover:bg-primary/20 transition-colors whitespace-nowrap font-medium"
+          >
+            <Plus className="h-3 w-3" /> ใหม่
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto py-2 min-w-[14rem]">
+          {sessions.length === 0 ? (
+            <div className="px-3 py-10 text-center">
+              <Bot className="h-8 w-8 mx-auto text-muted-foreground/30 mb-2" />
+              <p className="text-xs text-muted-foreground">ยังไม่มีประวัติ</p>
+            </div>
+          ) : sessions.map(sess => (
+            <div
+              key={sess.id}
+              onClick={() => loadSession(sess)}
+              className={`group flex items-start gap-2 px-3 py-2.5 cursor-pointer hover:bg-accent/60 rounded-lg mx-2 mb-0.5 transition-colors ${
+                sess.id === currentSessionId ? "bg-accent" : ""
+              }`}
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate leading-snug">{sess.title}</p>
+                <p className="text-xs text-muted-foreground/70 mt-0.5">{relativeDate(sess.updatedAt)}</p>
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); deleteSession(sess.id); }}
+                className="opacity-0 group-hover:opacity-100 mt-0.5 text-muted-foreground hover:text-destructive transition-all shrink-0 p-0.5 rounded"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* AI Settings Panel */}
-      <Card className="border-dashed">
+      {/* ── Main chat ── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+      {/* ── Header ── */}
+      <div className="shrink-0 flex items-center gap-2 pb-3 border-b">
         <button
-          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => setSettingsOpen(o => !o)}
+          onClick={() => {
+            const next = !historyOpen;
+            setHistoryOpen(next);
+            if (session?.user?.id) localStorage.setItem(`myfinance-history-open-${session.user.id}`, next ? "1" : "0");
+          }}
+          className={`p-2 rounded-lg transition-colors hover:bg-accent ${historyOpen ? "text-primary bg-primary/5" : "text-muted-foreground"}`}
+          title="ประวัติแชท"
         >
-          <span className="flex items-center gap-2">
-            <Settings2 className="h-4 w-4" />
-            ปรับแต่ง AI — น้ำเสียง & บริบทส่วนตัว
-          </span>
-          {settingsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          <History className="h-4 w-4" />
         </button>
 
-        {settingsOpen && (
-          <CardContent className="pt-0 pb-4 border-t space-y-4">
-            {/* Tone Slider */}
-            <div className="space-y-2">
-              <Label className="text-sm">น้ำเสียงการตอบ: <span className="font-semibold text-foreground">{TONE_LABELS[toneLevel]}</span></Label>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-16">อ่อนโยน</span>
-                <input
-                  type="range" min={1} max={5} step={1} value={toneLevel}
-                  onChange={e => setToneLevel(Number(e.target.value))}
-                  className="flex-1 h-2 accent-primary cursor-pointer"
-                />
-                <span className="text-xs text-muted-foreground w-16 text-right">ตรงมาก</span>
-              </div>
-              <div className="flex justify-between px-16 text-xs text-muted-foreground">
-                {[1,2,3,4,5].map(n => <span key={n} className={toneLevel === n ? "text-primary font-bold" : ""}>{n}</span>)}
-              </div>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-sm shrink-0">
+            <Sparkles className="h-4 w-4 text-white" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <h1 className="font-semibold text-sm leading-tight">MyFinance AI</h1>
+              {isPremium && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Premium</Badge>}
+            </div>
+            <p className="text-xs text-muted-foreground/70 truncate">{effectiveModel} · {activeProviderLabel}</p>
+          </div>
+        </div>
+
+        <button
+          onClick={newChat}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground border rounded-lg px-2.5 py-1.5 hover:bg-accent transition-colors shrink-0"
+        >
+          <Plus className="h-3 w-3" /> ใหม่
+        </button>
+        <button
+          onClick={() => setSettingsOpen(o => !o)}
+          className={`p-2 rounded-lg transition-colors hover:bg-accent ${
+            settingsOpen ? "text-primary bg-primary/5" : "text-muted-foreground"
+          }`}
+          title="ตั้งค่า AI"
+        >
+          <Settings2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* ── Settings Panel (slide-in) ── */}
+      {settingsOpen && (
+        <div className="shrink-0 border-b bg-muted/20 overflow-y-auto max-h-[65vh]">
+          <div className="px-4 py-4 space-y-5 max-w-2xl">
+
+          {/* Panel header */}
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">ตั้งค่า AI</p>
+            <button
+              onClick={() => setSettingsOpen(false)}
+              className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Provider / Model */}
+          <div className="space-y-3">
+            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI Provider & Model</Label>
+
+            {/* Provider tabs */}
+            <div className="flex gap-2 flex-wrap">
+              {PROVIDERS.map(p => (
+                <button
+                  key={p.value}
+                  onClick={() => handleProviderChange(p.value)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                    provider === p.value
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-background hover:bg-accent border-input"
+                  }`}
+                >
+                  <span>{p.logo}</span>{p.label}
+                </button>
+              ))}
             </div>
 
-            {/* Custom context */}
+            {/* Model dropdown */}
             <div className="space-y-1">
-              <Label className="text-sm">บริบทเพิ่มเติม <span className="text-muted-foreground font-normal">(AI จะรับทราบเพิ่มเติมนอกเหนือจากโปรไฟล์)</span></Label>
-              <textarea
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                rows={3}
-                placeholder="เช่น ฉันกำลังวางแผนซื้อบ้านในอีก 3 ปี, ฉันมีโรคประจำตัว..."
-                value={customPrompt}
-                onChange={e => setCustomPrompt(e.target.value)}
-                maxLength={1000}
+              <Label className="text-xs text-muted-foreground">Model</Label>
+              <select
+                value={model}
+                onChange={e => setModel(e.target.value)}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {MODELS[provider].map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Custom model name (Ollama) */}
+            {provider === "ollama" && (
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">
+                  ชื่อ Model ที่ custom <span className="text-muted-foreground/60">(เว้นว่างเพื่อใช้จากรายการ)</span>
+                </Label>
+                <Input
+                  placeholder="เช่น llama3:8b-instruct-q5_K_M"
+                  value={customModel}
+                  onChange={e => setCustomModel(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Ollama base URL */}
+            {provider === "ollama" && (
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Ollama Host URL</Label>
+                <Input
+                  placeholder="http://ollama:11434"
+                  value={ollamaUrl}
+                  onChange={e => setOllamaUrl(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Docker:{" "}
+                  <span className="font-mono bg-muted px-1 rounded">http://ollama:11434</span>
+                  {" "}· Local:{" "}
+                  <span className="font-mono bg-muted px-1 rounded">http://localhost:11434</span>
+                </p>
+              </div>
+            )}
+
+            {/* API Token */}
+            {needsToken && (
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">
+                  {provider === "openai" ? "OpenAI API Key" : "Gemini API Key (AI Studio)"}
+                  {hasToken && tokenMasked && (
+                    <span className="ml-2 text-emerald-600 font-mono font-medium">✓ {tokenMasked}</span>
+                  )}
+                </Label>
+                <div className="relative">
+                  <Input
+                    type={showToken ? "text" : "password"}
+                    placeholder={hasToken ? "ใส่ key ใหม่เพื่อเปลี่ยน..." : provider === "openai" ? "sk-..." : "AIza..."}
+                    value={apiToken}
+                    onChange={e => setApiToken(e.target.value)}
+                    className="pr-10 font-mono text-xs"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {provider === "gemini"
+                    ? "รับ key ได้ที่ aistudio.google.com — ถ้าไม่ใส่จะใช้ server key (ถ้ามี)"
+                    : "รับ key ได้ที่ platform.openai.com/api-keys"}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Tone slider */}
+          <div className="space-y-2">
+            <Label className="text-sm">
+              น้ำเสียงการตอบ:{" "}
+              <span className="font-semibold text-foreground">{TONE_LABELS[toneLevel]}</span>
+            </Label>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground w-14">อ่อนโยน</span>
+              <input
+                type="range" min={1} max={5} step={1} value={toneLevel}
+                onChange={e => setToneLevel(Number(e.target.value))}
+                className="flex-1 h-2 accent-emerald-500 cursor-pointer"
               />
-              <p className="text-xs text-muted-foreground text-right">{customPrompt.length}/1000</p>
+              <span className="text-xs text-muted-foreground w-14 text-right">ตรงมาก</span>
             </div>
+          </div>
 
-            <div className="flex items-center gap-2">
-              <Button size="sm" onClick={saveSettings} disabled={settingsSaving}>
-                {settingsSaving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Save className="h-3 w-3 mr-1" />}
-                บันทึก
-              </Button>
-              {settingsSaved && <span className="text-xs text-green-600">บันทึกแล้ว ✓</span>}
+          {/* Custom context */}
+          <div className="space-y-1">
+            <Label className="text-sm">บริบทเพิ่มเติม</Label>
+            <textarea
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              rows={2}
+              placeholder="เช่น ฉันกำลังวางแผนซื้อบ้านในอีก 3 ปี..."
+              value={customPrompt}
+              onChange={e => setCustomPrompt(e.target.value)}
+              maxLength={1000}
+            />
+            <p className="text-xs text-muted-foreground text-right">{customPrompt.length}/1000</p>
+          </div>
+
+          {/* Save */}
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={saveSettings} disabled={settingsSaving}>
+              {settingsSaving
+                ? <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                : <Save className="h-3 w-3 mr-1" />}
+              บันทึกการตั้งค่า
+            </Button>
+            {settingsSaved && <span className="text-xs text-emerald-600 font-medium">บันทึกแล้ว ✓</span>}
+            {saveError   && <span className="text-xs text-red-500">{saveError}</span>}
+          </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ── Welcome screen ── */}
+      {!hasMessages ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4 pb-4">
+          {!isPremium ? (
+            <div className="text-center space-y-4">
+              <div className="h-14 w-14 mx-auto rounded-2xl bg-primary/10 flex items-center justify-center">
+                <Lock className="h-7 w-7 text-primary" />
+              </div>
+              <p className="text-muted-foreground text-sm">ฟีเจอร์นี้สำหรับสมาชิก Premium เท่านั้น</p>
+              <Button size="lg">อัปเกรดเป็น Premium — ฿99/เดือน</Button>
             </div>
-          </CardContent>
-        )}
-      </Card>
-
-      {/* Chat Area */}
-      <div className="relative flex-1">
-        {!isPremium && <LockedOverlay />}
-        <Card className="h-[55vh] flex flex-col">
-          <CardHeader className="pb-3 border-b">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Bot className="h-4 w-4 text-primary" />
-              MyFinance AI — Powered by Google Gemini
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+          ) : (
+            <>
+              <div className="text-center space-y-2">
+                <div className="h-14 w-14 mx-auto rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-md">
+                  <Sparkles className="h-7 w-7 text-white" />
+                </div>
+                <h2 className="text-xl font-bold tracking-tight">MyFinance AI</h2>
+                <p className="text-muted-foreground text-sm max-w-xs leading-relaxed">
+                  ที่ปรึกษาการเงินส่วนตัว — ถามได้ทุกเรื่องการเงินและภาษี
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 w-full max-w-sm">
+                {STARTER_TOPICS.map(p => (
+                  <button
+                    key={p.topic}
+                    onClick={() => sendSmartPrompt(p.topic)}
+                    disabled={loadingTopic !== null}
+                    className="text-left p-3.5 rounded-xl border border-border/60 bg-card hover:bg-accent hover:border-primary/30 hover:shadow-sm transition-all duration-150 group disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <div className="text-lg mb-1.5">
+                      {loadingTopic === p.topic
+                        ? <Loader2 className="h-4.5 w-4.5 animate-spin text-muted-foreground" />
+                        : p.icon}
+                    </div>
+                    <div className="text-sm font-medium leading-tight">{p.label}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {loadingTopic === p.topic ? "กำลังโหลด..." : "จากข้อมูลจริงของคุณ"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        /* ── Chat messages ── */
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="max-w-3xl mx-auto space-y-4 px-3 py-5">
             {messages.map((m, i) => (
-              <div key={i} className={`flex gap-2 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
-                <div className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 ${m.role === "assistant" ? "bg-primary/10" : "bg-secondary"}`}>
-                  {m.role === "assistant" ? <Bot className="h-4 w-4 text-primary" /> : <User className="h-4 w-4" />}
-                </div>
-                <div className={`max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${m.role === "assistant" ? "bg-muted" : "bg-primary text-white"}`}>
-                  {m.content}
-                </div>
+              <div key={i} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
+                {m.role === "user" ? (
+                  m.topicIcon ? (
+                    /* Smart-prompt card bubble */
+                    <div className="max-w-[80%] rounded-2xl rounded-tr-sm overflow-hidden shadow-sm border border-primary/20">
+                      <div className="bg-primary px-4 py-2 flex items-center gap-2">
+                        <span className="text-base">{m.topicIcon}</span>
+                        <span className="text-sm font-semibold text-primary-foreground">{m.topicLabel}</span>
+                      </div>
+                      <div className="bg-primary/10 px-4 py-2.5 text-xs text-foreground/70 leading-relaxed">
+                        {m.displayContent ?? m.content}
+                      </div>
+                    </div>
+                  ) : (
+                    /* Plain user bubble */
+                    <div className="max-w-[78%] bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed shadow-sm">
+                      {m.content}
+                    </div>
+                  )
+                ) : (
+                  /* AI reply row */
+                  <>
+                    <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                      <Sparkles className="h-3.5 w-3.5 text-white" />
+                    </div>
+                    <div className="flex-1 text-sm text-foreground leading-relaxed whitespace-pre-wrap pt-0.5 min-w-0">
+                      {m.content}
+                      {isStreaming && i === messages.length - 1 && (
+                        <span className="inline-block w-0.5 h-4 bg-emerald-500 animate-pulse ml-0.5 align-text-bottom" />
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
+
             {loading && (
-              <div className="flex gap-2">
-                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Bot className="h-4 w-4 text-primary" />
+              <div className="flex gap-3">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-sm">
+                  <Sparkles className="h-3.5 w-3.5 text-white" />
                 </div>
-                <div className="bg-muted rounded-lg px-3 py-2 text-sm text-muted-foreground animate-pulse">
-                  กำลังคิด...
-                </div>
+                <ThinkingIndicator model={effectiveModel} />
               </div>
             )}
             <div ref={endRef} />
-          </CardContent>
-          {/* Input */}
-          <div className="p-3 border-t flex gap-2">
-            <Input
-              placeholder={isPremium ? "พิมพ์ข้อความ..." : "อัปเกรดเพื่อใช้งาน"}
-              value={input}
-              disabled={!isPremium || loading}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && send(input)}
-            />
-            <Button size="icon" disabled={!isPremium || loading || !input.trim()} onClick={() => send(input)}>
-              <Send className="h-4 w-4" />
-            </Button>
           </div>
-        </Card>
-      </div>
-
-      {/* Starter prompts */}
-      <div>
-        <p className="text-xs text-muted-foreground mb-2">ลองถามเกี่ยวกับ...</p>
-        <div className="flex flex-wrap gap-2">
-          {STARTER_PROMPTS.map(p => (
-            <button
-              key={p}
-              disabled={!isPremium}
-              onClick={() => send(p)}
-              className="text-xs border rounded-full px-3 py-1 hover:bg-primary/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {p}
-            </button>
-          ))}
         </div>
+      )}
+
+      {/* ── Input Area ── */}
+      <div className="shrink-0 pt-2">
+        {/* Quick-topic pills — only when chatting */}
+        {hasMessages && (
+          <div className="flex flex-wrap gap-1.5 mb-2.5 justify-center">
+            {STARTER_TOPICS.map(p => (
+              <button
+                key={p.topic}
+                disabled={!isPremium || loading || isStreaming || loadingTopic !== null}
+                onClick={() => sendSmartPrompt(p.topic)}
+                className="text-xs border border-border/60 rounded-full px-3 py-1 bg-background hover:bg-accent hover:border-primary/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                {loadingTopic === p.topic
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <span>{p.icon}</span>}
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Text box */}
+        <div className="flex items-end gap-2.5 border border-border rounded-2xl px-3.5 py-2.5 bg-background shadow-sm focus-within:ring-1 focus-within:ring-primary/40 focus-within:border-primary/50 transition-all">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            placeholder={
+              isPremium
+                ? "พิมพ์ข้อความของคุณ..."
+                : "อัปเกรดเป็น Premium เพื่อใช้งาน"
+            }
+            value={input}
+            disabled={!isPremium || loading || isStreaming}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="flex-1 bg-transparent resize-none text-sm outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed leading-relaxed py-0.5"
+            style={{ maxHeight: 160 }}
+          />
+          {(loading || isStreaming) ? (
+            <button
+              onClick={stopGeneration}
+              className="shrink-0 h-8 w-8 rounded-xl bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors"
+              title="หยุดสร้างคำตอบ"
+            >
+              <Square className="h-3 w-3 fill-current" />
+            </button>
+          ) : (
+            <button
+              disabled={!isPremium || !input.trim()}
+              onClick={() => send(input)}
+              className="shrink-0 h-8 w-8 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="ส่ง"
+            >
+              <Send className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Footer: response length + disclaimer */}
+        <div className="flex items-center justify-between mt-1.5 px-0.5">
+          <div className="flex items-center gap-1">
+            {(["short", "medium", "long"] as const).map(len => (
+              <button
+                key={len}
+                onClick={() => {
+                  setResponseLength(len);
+                  if (session?.user?.id) localStorage.setItem(`myfinance-resplen-${session.user.id}`, len);
+                }}
+                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                  responseLength === len
+                    ? "bg-primary/10 text-primary border-primary/30 font-medium"
+                    : "text-muted-foreground/60 border-transparent hover:border-input hover:text-muted-foreground"
+                }`}
+              >
+                {len === "short" ? "⚡ สั้น" : len === "medium" ? "📝 กลาง" : "📚 ยาว"}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground/40">
+            ตรวจสอบกับผู้เชี่ยวชาญก่อนตัดสินใจ
+          </p>
+        </div>
+      </div>
       </div>
     </div>
   );

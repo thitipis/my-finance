@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Flag, FileText, Settings, TrendingUp, LogOut, Shield, MessageSquare } from "lucide-react";
+import { LayoutDashboard, Flag, FileText, Settings, TrendingUp, LogOut, Shield, MessageSquare, Library } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -10,6 +10,7 @@ const NAV = [
   { href: "/admin/feature-flags", label: "Feature Flags", icon: Flag },
   { href: "/admin/tax-config",    label: "Tax Config",    icon: FileText },
   { href: "/admin/ai-prompt",     label: "AI Prompt",     icon: MessageSquare },
+  { href: "/admin/instruments",   label: "Instruments",   icon: Library },
   { href: "/admin/settings",      label: "Settings",      icon: Settings },
 ];
 
