@@ -23,6 +23,7 @@ import {
   X,
   Brain,
   BookOpen,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -105,6 +106,7 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
         )}
 
         <NavItem href="/ai-chat"  label="AI ที่ปรึกษา" icon={MessageSquareText} active={pathname.startsWith("/ai-chat")}  onClick={onNavClick} />
+        <NavItem href="/lineage"  label="Lineage"       icon={GitBranch}        active={pathname.startsWith("/lineage")}  onClick={onNavClick} />
         <NavItem href="/settings" label="ตั้งค่าบัญชี" icon={Settings}         active={pathname.startsWith("/settings")} onClick={onNavClick} />
       </nav>
 

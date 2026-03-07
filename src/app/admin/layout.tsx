@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Flag, FileText, Settings, TrendingUp, LogOut, Shield, MessageSquare, Library } from "lucide-react";
+import { LayoutDashboard, Flag, FileText, Settings, TrendingUp, LogOut, Shield, MessageSquare, Library, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -11,6 +11,7 @@ const NAV = [
   { href: "/admin/tax-config",    label: "Tax Config",    icon: FileText },
   { href: "/admin/ai-prompt",     label: "AI Prompt",     icon: MessageSquare },
   { href: "/admin/instruments",   label: "Instruments",   icon: Library },
+  { href: "/admin/life-stages",   label: "Life Stages",   icon: GitBranch },
   { href: "/admin/settings",      label: "Settings",      icon: Settings },
 ];
 

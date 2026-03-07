@@ -71,6 +71,7 @@ model User {
   aiSettings       AiSettings?
   financialPlan    FinancialPlan?
   portfolioAssets  PortfolioAsset[]
+  lineageEvents    LineageEvent[]
 
   @@map("users")
 }
@@ -520,4 +521,45 @@ model InstrumentCatalog {
   @@index([assetType])
   @@index([ticker])
   @@map("instrument_catalog")
+}
+
+// ─── Lineage (Life Timeline) ─────────────────────────────────────────────────
+
+model LifeStageTemplate {
+  id            String   @id @default(uuid())
+  ageFrom       Int      @map("age_from")
+  ageTo         Int      @map("age_to")
+  titleTh       String   @map("title_th") @db.VarChar(100)
+  descriptionTh String   @map("description_th") @db.Text
+  icon          String   @db.VarChar(10)
+  allocEquity   Int      @default(70) @map("alloc_equity")
+  allocBond     Int      @default(20) @map("alloc_bond")
+  allocCash     Int      @default(10) @map("alloc_cash")
+  colorHex      String   @default("#6366f1") @map("color_hex") @db.VarChar(20)
+  isActive      Boolean  @default(true) @map("is_active")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("life_stage_templates")
+}
+
+model LineageEvent {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  age         Int
+  eventYear   Int      @map("event_year")
+  eventType   String   @map("event_type")
+  impact      String   @default("neutral")
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+  isAuto      Boolean  @default(false) @map("is_auto")
+  isAI        Boolean  @default(false) @map("is_ai")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("lineage_events")
 }

@@ -2,8 +2,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import {
-  Sparkles, Send, Square, Lock, Loader2, Settings2, Save, Plus,
-  Eye, EyeOff, History, Trash2, X, Bot,
+  Sparkles, Send, Square, Lock, Loader2, Settings2, Save,
+  Eye, EyeOff, X, SquarePen, MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -438,14 +438,12 @@ export default function AiChatPage() {
     setCurrentSessionId(id);
     sessionIdRef.current = id;
     setMessages([]);
-    setHistoryOpen(false);
   };
 
   const loadSession = (sess: ChatSession) => {
     setCurrentSessionId(sess.id);
     sessionIdRef.current = sess.id;
     setMessages(sess.messages);
-    setHistoryOpen(false);
   };
 
   const deleteSession = (id: string) => {
@@ -564,65 +562,84 @@ export default function AiChatPage() {
     <div className="flex h-[calc(100dvh-8.5rem)] md:h-[calc(100dvh-4.5rem)]">
 
       {/* ── History Sidebar ── */}
-      <div className={`shrink-0 border-r flex flex-col bg-background overflow-hidden transition-all duration-200 ${historyOpen ? "w-56" : "w-0"}`}>
-        <div className="shrink-0 flex items-center gap-2 px-3 py-3 border-b min-w-[14rem]">
-          <Bot className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold flex-1 text-foreground">แชท</span>
-          <button
-            onClick={newChat}
-            className="flex items-center gap-1 text-xs bg-primary/10 text-primary rounded-lg px-2.5 py-1 hover:bg-primary/20 transition-colors whitespace-nowrap font-medium"
-          >
-            <Plus className="h-3 w-3" /> ใหม่
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto py-2 min-w-[14rem]">
-          {sessions.length === 0 ? (
-            <div className="px-3 py-10 text-center">
-              <Bot className="h-8 w-8 mx-auto text-muted-foreground/30 mb-2" />
-              <p className="text-xs text-muted-foreground">ยังไม่มีประวัติ</p>
-            </div>
-          ) : sessions.map(sess => (
-            <div
-              key={sess.id}
-              onClick={() => loadSession(sess)}
-              className={`group flex items-start gap-2 px-3 py-2.5 cursor-pointer hover:bg-accent/60 rounded-lg mx-2 mb-0.5 transition-colors ${
-                sess.id === currentSessionId ? "bg-accent" : ""
-              }`}
+      {historyOpen ? (
+        /* — Expanded panel — */
+        <div className="shrink-0 w-60 border-r flex flex-col bg-background">
+          <div className="shrink-0 flex items-center gap-2 px-3 pt-3 pb-2.5 border-b">
+            <span className="text-sm font-semibold flex-1 text-foreground">ประวัติแชท</span>
+            <button
+              onClick={newChat}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              title="แชทใหม่"
             >
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium truncate leading-snug">{sess.title}</p>
-                <p className="text-xs text-muted-foreground/70 mt-0.5">{relativeDate(sess.updatedAt)}</p>
+              <SquarePen className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => {
+                setHistoryOpen(false);
+                if (session?.user?.id) localStorage.setItem(`myfinance-history-open-${session.user.id}`, "0");
+              }}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              title="ปิด"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+            {sessions.length === 0 ? (
+              <div className="px-3 py-10 text-center">
+                <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground/20 mb-2" />
+                <p className="text-xs text-muted-foreground">ยังไม่มีประวัติ</p>
               </div>
-              <button
-                onClick={e => { e.stopPropagation(); deleteSession(sess.id); }}
-                className="opacity-0 group-hover:opacity-100 mt-0.5 text-muted-foreground hover:text-destructive transition-all shrink-0 p-0.5 rounded"
+            ) : sessions.map(sess => (
+              <div
+                key={sess.id}
+                onClick={() => loadSession(sess)}
+                className={`group relative flex items-start px-3 py-2.5 cursor-pointer rounded-lg transition-colors ${
+                  sess.id === currentSessionId
+                    ? "bg-primary/10 border border-primary/20"
+                    : "hover:bg-accent/60"
+                }`}
               >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+                <div className="flex-1 min-w-0 pr-6">
+                  <p className={`text-xs truncate leading-snug ${
+                    sess.id === currentSessionId ? "font-semibold text-primary" : "font-medium"
+                  }`}>{sess.title}</p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">{relativeDate(sess.updatedAt)}</p>
+                </div>
+                <button
+                  onClick={e => { e.stopPropagation(); deleteSession(sess.id); }}
+                  className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-destructive transition-all p-0.5 rounded"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* — Collapsed tab — */
+        <button
+          onClick={() => {
+            setHistoryOpen(true);
+            if (session?.user?.id) localStorage.setItem(`myfinance-history-open-${session.user.id}`, "1");
+          }}
+          className="shrink-0 w-8 border-r bg-muted/40 hover:bg-muted/70 flex items-center justify-center transition-colors group"
+          title="เปิดประวัติแชท"
+        >
+          <span className="[writing-mode:vertical-rl] rotate-180 text-[11px] font-medium text-muted-foreground group-hover:text-foreground tracking-wide transition-colors select-none">
+            ประวัติ
+          </span>
+        </button>
+      )}
 
       {/* ── Main chat ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
       {/* ── Header ── */}
-      <div className="shrink-0 flex items-center gap-2 pb-3 border-b">
-        <button
-          onClick={() => {
-            const next = !historyOpen;
-            setHistoryOpen(next);
-            if (session?.user?.id) localStorage.setItem(`myfinance-history-open-${session.user.id}`, next ? "1" : "0");
-          }}
-          className={`p-2 rounded-lg transition-colors hover:bg-accent ${historyOpen ? "text-primary bg-primary/5" : "text-muted-foreground"}`}
-          title="ประวัติแชท"
-        >
-          <History className="h-4 w-4" />
-        </button>
-
+      <div className="shrink-0 flex items-center gap-2 px-4 pb-3 border-b">
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-sm shrink-0">
+          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-sm shrink-0">
             <Sparkles className="h-4 w-4 text-white" />
           </div>
           <div className="min-w-0">
@@ -634,12 +651,6 @@ export default function AiChatPage() {
           </div>
         </div>
 
-        <button
-          onClick={newChat}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground border rounded-lg px-2.5 py-1.5 hover:bg-accent transition-colors shrink-0"
-        >
-          <Plus className="h-3 w-3" /> ใหม่
-        </button>
         <button
           onClick={() => setSettingsOpen(o => !o)}
           className={`p-2 rounded-lg transition-colors hover:bg-accent ${
@@ -819,53 +830,66 @@ export default function AiChatPage() {
 
       {/* ── Welcome screen ── */}
       {!hasMessages ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4 pb-4">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 pb-4 overflow-y-auto">
           {!isPremium ? (
-            <div className="text-center space-y-4">
-              <div className="h-14 w-14 mx-auto rounded-2xl bg-primary/10 flex items-center justify-center">
-                <Lock className="h-7 w-7 text-primary" />
+            <div className="text-center space-y-5 max-w-sm w-full">
+              <div className="h-16 w-16 mx-auto rounded-2xl bg-muted flex items-center justify-center">
+                <Lock className="h-8 w-8 text-muted-foreground" />
               </div>
-              <p className="text-muted-foreground text-sm">ฟีเจอร์นี้สำหรับสมาชิก Premium เท่านั้น</p>
-              <Button size="lg">อัปเกรดเป็น Premium — ฿99/เดือน</Button>
+              <div>
+                <h2 className="text-lg font-bold mb-1">สำหรับ Premium เท่านั้น</h2>
+                <p className="text-sm text-muted-foreground">อัปเกรดเพื่อเข้าถึง AI ที่ปรึกษาการเงินส่วนตัว</p>
+              </div>
+              <Button size="lg" className="w-full">อัปเกรดเป็น Premium — ฿99/เดือน</Button>
             </div>
           ) : (
-            <>
-              <div className="text-center space-y-2">
-                <div className="h-14 w-14 mx-auto rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-md">
-                  <Sparkles className="h-7 w-7 text-white" />
+            <div className="w-full max-w-md space-y-7">
+              {/* Hero */}
+              <div className="text-center space-y-3">
+                <div className="relative inline-flex">
+                  <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg">
+                    <Sparkles className="h-8 w-8 text-white" />
+                  </div>
+                  <span className="absolute -top-1 -right-1 h-3.5 w-3.5 bg-emerald-400 rounded-full border-2 border-background" />
                 </div>
-                <h2 className="text-xl font-bold tracking-tight">MyFinance AI</h2>
-                <p className="text-muted-foreground text-sm max-w-xs leading-relaxed">
-                  ที่ปรึกษาการเงินส่วนตัว — ถามได้ทุกเรื่องการเงินและภาษี
-                </p>
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight">MyFinance AI</h2>
+                  <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
+                    ที่ปรึกษาการเงินส่วนตัว วิเคราะห์จากข้อมูลจริงของคุณ
+                  </p>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2.5 w-full max-w-sm">
-                {STARTER_TOPICS.map(p => (
+
+              {/* Topic cards */}
+              <div className="grid grid-cols-2 gap-3">
+                {STARTER_TOPICS.map(t => (
                   <button
-                    key={p.topic}
-                    onClick={() => sendSmartPrompt(p.topic)}
+                    key={t.topic}
+                    onClick={() => sendSmartPrompt(t.topic)}
                     disabled={loadingTopic !== null}
-                    className="text-left p-3.5 rounded-xl border border-border/60 bg-card hover:bg-accent hover:border-primary/30 hover:shadow-sm transition-all duration-150 group disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="text-left p-4 rounded-2xl border bg-card hover:shadow-md hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
                   >
-                    <div className="text-lg mb-1.5">
-                      {loadingTopic === p.topic
-                        ? <Loader2 className="h-4.5 w-4.5 animate-spin text-muted-foreground" />
-                        : p.icon}
+                    <div className="text-2xl mb-2.5">
+                      {loadingTopic === t.topic
+                        ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        : t.icon}
                     </div>
-                    <div className="text-sm font-medium leading-tight">{p.label}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {loadingTopic === p.topic ? "กำลังโหลด..." : "จากข้อมูลจริงของคุณ"}
-                    </div>
+                    <p className="text-sm font-semibold leading-tight">{t.label}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {loadingTopic === t.topic ? "กำลังโหลดข้อมูล..." : "วิเคราะห์จากข้อมูลของคุณ"}
+                    </p>
                   </button>
                 ))}
               </div>
-            </>
+
+              <p className="text-center text-xs text-muted-foreground/50">หรือพิมพ์คำถามใดก็ได้ด้านล่าง</p>
+            </div>
           )}
         </div>
       ) : (
         /* ── Chat messages ── */
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="max-w-3xl mx-auto space-y-4 px-3 py-5">
+          <div className="max-w-3xl mx-auto space-y-5 px-6 py-6">
             {messages.map((m, i) => (
               <div key={i} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
                 {m.role === "user" ? (
@@ -889,10 +913,10 @@ export default function AiChatPage() {
                 ) : (
                   /* AI reply row */
                   <>
-                    <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
-                      <Sparkles className="h-3.5 w-3.5 text-white" />
+                    <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                      <Sparkles className="h-4 w-4 text-white" />
                     </div>
-                    <div className="flex-1 text-sm text-foreground leading-relaxed whitespace-pre-wrap pt-0.5 min-w-0">
+                    <div className="flex-1 min-w-0 bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground leading-relaxed whitespace-pre-wrap">
                       {m.content}
                       {isStreaming && i === messages.length - 1 && (
                         <span className="inline-block w-0.5 h-4 bg-emerald-500 animate-pulse ml-0.5 align-text-bottom" />
@@ -905,10 +929,12 @@ export default function AiChatPage() {
 
             {loading && (
               <div className="flex gap-3">
-                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-sm">
-                  <Sparkles className="h-3.5 w-3.5 text-white" />
+                <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shrink-0 shadow-sm">
+                  <Sparkles className="h-4 w-4 text-white" />
                 </div>
-                <ThinkingIndicator model={effectiveModel} />
+                <div className="bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3">
+                  <ThinkingIndicator model={effectiveModel} />
+                </div>
               </div>
             )}
             <div ref={endRef} />
@@ -917,7 +943,7 @@ export default function AiChatPage() {
       )}
 
       {/* ── Input Area ── */}
-      <div className="shrink-0 pt-2">
+      <div className="shrink-0 pt-2 px-4 pb-2">
         {/* Quick-topic pills — only when chatting */}
         {hasMessages && (
           <div className="flex flex-wrap gap-1.5 mb-2.5 justify-center">
@@ -926,7 +952,7 @@ export default function AiChatPage() {
                 key={p.topic}
                 disabled={!isPremium || loading || isStreaming || loadingTopic !== null}
                 onClick={() => sendSmartPrompt(p.topic)}
-                className="text-xs border border-border/60 rounded-full px-3 py-1 bg-background hover:bg-accent hover:border-primary/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                className="text-xs border rounded-full px-3 py-1.5 bg-background hover:bg-muted hover:border-primary/30 hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 font-medium"
               >
                 {loadingTopic === p.topic
                   ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -938,7 +964,7 @@ export default function AiChatPage() {
         )}
 
         {/* Text box */}
-        <div className="flex items-end gap-2.5 border border-border rounded-2xl px-3.5 py-2.5 bg-background shadow-sm focus-within:ring-1 focus-within:ring-primary/40 focus-within:border-primary/50 transition-all">
+        <div className="flex items-end gap-2.5 border border-border rounded-2xl px-3.5 py-2.5 bg-background shadow-md focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -975,8 +1001,8 @@ export default function AiChatPage() {
         </div>
 
         {/* Footer: response length + disclaimer */}
-        <div className="flex items-center justify-between mt-1.5 px-0.5">
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between mt-2 px-0.5">
+          <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
             {(["short", "medium", "long"] as const).map(len => (
               <button
                 key={len}
@@ -984,10 +1010,10 @@ export default function AiChatPage() {
                   setResponseLength(len);
                   if (session?.user?.id) localStorage.setItem(`myfinance-resplen-${session.user.id}`, len);
                 }}
-                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                className={`text-xs px-3 py-1 rounded-md font-medium transition-all ${
                   responseLength === len
-                    ? "bg-primary/10 text-primary border-primary/30 font-medium"
-                    : "text-muted-foreground/60 border-transparent hover:border-input hover:text-muted-foreground"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {len === "short" ? "⚡ สั้น" : len === "medium" ? "📝 กลาง" : "📚 ยาว"}
