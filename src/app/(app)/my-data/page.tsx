@@ -8,13 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import {
   User, Banknote, ShieldCheck, TrendingUp, AlertTriangle,
-  Save, Loader2, CheckCircle2, Wallet, Building2, Heart,
-  ShieldAlert, Activity, UserCheck, AlertCircle, ExternalLink,
+  Save, Loader2, CheckCircle2, Wallet, Building2,
   MapPin, Coins, BarChart3, Globe, Layers, Bitcoin,
   ChevronDown, ChevronUp, ChevronLeft, Landmark, Plus, Trash2, X, LayoutGrid, Search, Pencil, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,6 +51,24 @@ interface FinancialProfile {
   emergencyFundAmount: number;
   monthlyExpenses: number;
 }
+
+// ─── Insurance coverage state (saved to InsuranceData, separate from premium) ─
+
+interface InsuranceState {
+  lifeCoverageAmount: number;
+  healthCoveragePerYear: number;
+  parentHealthCoveragePerYear: number;
+  annuityCoverageAmount: number;
+  spouseLifeCoverageAmount: number;
+}
+
+const defaultInsurance: InsuranceState = {
+  lifeCoverageAmount: 0,
+  healthCoveragePerYear: 0,
+  parentHealthCoveragePerYear: 0,
+  annuityCoverageAmount: 0,
+  spouseLifeCoverageAmount: 0,
+};
 
 const defaultProfile: FinancialProfile = {
   filingStatus: "single", numChildren: 0, numParents: 0, numDisabledDependents: 0,
@@ -171,157 +187,109 @@ function IncomeTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Fina
 
 // ─── Tab: Insurance ───────────────────────────────────────────────────────────
 
-type InsuranceCoverage = {
-  key: keyof FinancialProfile;
+type InsuranceCoverageDef = {
+  premiumKey: keyof FinancialProfile;
+  coverageKey: keyof InsuranceState;
   label: string;
-  sublabel: string;
-  icon: React.ElementType;
-  iconColor: string;
-  bg: string;
-  border: string;
-  risk: string;       // what happens without it
   deductHint: string;
   maxDeduct: number | null;
+  coverageLabel: string;
+  coverageHint: string;
 };
 
-const COVERAGE_TYPES: InsuranceCoverage[] = [
+const COVERAGE_TYPES: InsuranceCoverageDef[] = [
   {
-    key: "lifeInsurancePremium", label: "ประกันชีวิต", sublabel: "Life Insurance",
-    icon: Heart, iconColor: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", border: "border-blue-200",
-    risk: "หากเสียชีวิตกะทันหัน ครอบครัวจะไม่มีรายได้ทดแทน",
+    premiumKey: "lifeInsurancePremium", coverageKey: "lifeCoverageAmount",
+    label: "ประกันชีวิต",
     deductHint: "ลดหย่อนได้สูงสุด 100,000 บาท", maxDeduct: 100000,
+    coverageLabel: "ทุนประกันชีวิต (บาท)", coverageHint: "เงินที่ครอบครัวได้รับเมื่อเสียชีวิต",
   },
   {
-    key: "healthInsurancePremium", label: "ประกันสุขภาพ", sublabel: "Health Insurance",
-    icon: Activity, iconColor: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200",
-    risk: "ค่ารักษาพยาบาลอาจสูงถึงหลักล้าน ทำให้เงินออมหมดในพริบตา",
+    premiumKey: "healthInsurancePremium", coverageKey: "healthCoveragePerYear",
+    label: "ประกันสุขภาพ",
     deductHint: "ลดหย่อนได้สูงสุด 25,000 บาท", maxDeduct: 25000,
+    coverageLabel: "วงเงินสุขภาพ/ปี (บาท)", coverageHint: "ค่ารักษาพยาบาลที่ประกันจ่ายให้ต่อปี",
   },
   {
-    key: "parentHealthInsurancePremium", label: "ประกันสุขภาพบิดา/มารดา", sublabel: "Parent Health",
-    icon: UserCheck, iconColor: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-950/30", border: "border-sky-200",
-    risk: "ค่ารักษาผู้สูงอายุแพงมาก อาจกระทบรายได้ทั้งครอบครัว",
+    premiumKey: "parentHealthInsurancePremium", coverageKey: "parentHealthCoveragePerYear",
+    label: "ประกันสุขภาพบิดา/มารดา",
     deductHint: "ลดหย่อนได้สูงสุด 15,000 บาท", maxDeduct: 15000,
+    coverageLabel: "วงเงินสุขภาพพ่อแม่/ปี (บาท)", coverageHint: "วงเงินคุ้มครองค่ารักษาบิดา/มารดา",
   },
   {
-    key: "annuityInsurancePremium", label: "ประกันบำนาญ", sublabel: "Annuity Insurance",
-    icon: Wallet, iconColor: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-950/30", border: "border-teal-200",
-    risk: "เกษียณแล้วเงินอาจหมดก่อนอายุขัย หากไม่มีรายได้สม่ำเสมอ",
-    deductHint: "ลดหย่อนได้ 15% ของรายได้ สูงสุด 200,000 บาท", maxDeduct: 200000,
+    premiumKey: "annuityInsurancePremium", coverageKey: "annuityCoverageAmount",
+    label: "ประกันบำนาญ",
+    deductHint: "ลดหย่อน 15% ของรายได้ สูงสุด 200,000 บาท", maxDeduct: 200000,
+    coverageLabel: "เงินบำนาญ/ปี (บาท)", coverageHint: "รายได้บำนาญที่ได้รับต่อปีหลังเกษียณ",
   },
   {
-    key: "spouseLifeInsurancePremium", label: "ประกันชีวิตคู่สมรส", sublabel: "Spouse Life",
-    icon: Heart, iconColor: "text-pink-600", bg: "bg-pink-50 dark:bg-pink-950/30", border: "border-pink-200",
-    risk: "คู่สมรสที่ไม่มีรายได้ควรมีหลักประกันหากเกิดเหตุไม่คาดฝัน",
-    deductHint: "ลดหย่อนได้สูงสุด 10,000 บาท (คู่สมรสไม่มีรายได้)", maxDeduct: 10000,
+    premiumKey: "spouseLifeInsurancePremium", coverageKey: "spouseLifeCoverageAmount",
+    label: "ประกันชีวิตคู่สมรส",
+    deductHint: "ลดหย่อนได้สูงสุด 10,000 บาท", maxDeduct: 10000,
+    coverageLabel: "ทุนประกันคู่สมรส (บาท)", coverageHint: "เงินที่ได้รับเมื่อคู่สมรสเสียชีวิต",
   },
 ];
 
-function InsuranceTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
-  const totalPremium = (p.lifeInsurancePremium + p.healthInsurancePremium + p.parentHealthInsurancePremium + p.annuityInsurancePremium + p.spouseLifeInsurancePremium);
-  const coveredCount = COVERAGE_TYPES.filter(t => (p[t.key] as number) > 0).length;
-  const missingCount = COVERAGE_TYPES.length - coveredCount;
+function InsuranceTab({
+  p, upd, ins, updIns,
+}: {
+  p: FinancialProfile;
+  upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void;
+  ins: InsuranceState;
+  updIns: (k: keyof InsuranceState, v: number) => void;
+}) {
+  const totalAnnual = COVERAGE_TYPES.reduce((sum, t) => sum + (p[t.premiumKey] as number), 0);
+  const coveredCount = COVERAGE_TYPES.filter(t => (p[t.premiumKey] as number) > 0).length;
+  const totalMonthly = Math.round(totalAnnual / 12);
 
   return (
     <div className="space-y-4">
 
-      {/* ── Awareness banner ── */}
-      <div className="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 p-4">
-        <div className="flex items-start gap-3">
-          <ShieldAlert className="h-6 w-6 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-amber-800 dark:text-amber-300">ประกันคือโล่กำบังทางการเงินของคุณ</p>
-            <p className="text-sm text-amber-700/80 dark:text-amber-400 mt-1">
-              คนไทยกว่า 70% ไม่มีประกันสุขภาพเพียงพอ ค่ารักษาพยาบาลเพียงครั้งเดียวอาจทำลายแผนเกษียณของคุณทั้งชีวิต
-            </p>
-            {missingCount > 0 && (
-              <p className="text-sm font-medium text-red-600 mt-2 flex items-center gap-1.5">
-                <AlertCircle className="h-4 w-4" />
-                คุณยังขาดความคุ้มครอง {missingCount} ประเภท — ควรพิจารณาเพิ่มเติม
-              </p>
-            )}
-            {missingCount === 0 && (
-              <p className="text-sm font-medium text-emerald-600 mt-2 flex items-center gap-1.5">
-                <CheckCircle2 className="h-4 w-4" />
-                ครบทุกประเภทแล้ว — ความคุ้มครองของคุณดีมาก!
-              </p>
-            )}
-          </div>
+      {/* ── Summary strip ── */}
+      {totalAnnual > 0 && (
+        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="เบี้ยรวม/เดือน" value={thb(totalMonthly)} color="text-emerald-600" />
+          <SummaryPill label="เบี้ยรวม/ปี" value={thb(totalAnnual)} />
+          <SummaryPill label="ประเภทที่มี" value={`${coveredCount} / ${COVERAGE_TYPES.length}`} />
         </div>
-      </div>
+      )}
 
-      {/* ── Coverage status bar ── */}
-      <div className="flex flex-wrap gap-2 text-sm">
-        <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">✓ มีแล้ว {coveredCount} ประเภท</span>
-        {missingCount > 0 && <span className="px-3 py-1 rounded-full bg-red-100 text-red-700 font-medium">⚠ ขาด {missingCount} ประเภท</span>}
-        {totalPremium > 0 && <span className="px-3 py-1 rounded-full bg-muted text-muted-foreground">เบี้ยรวม ฿{totalPremium.toLocaleString("th-TH")}/ปี</span>}
-      </div>
-
-      {/* ── Coverage cards ── */}
-      <div className="space-y-3">
-        {COVERAGE_TYPES.map(type => {
-          const Icon = type.icon;
-          const premium = p[type.key] as number;
-          const hasCoverage = premium > 0;
-          const taxSaving = type.maxDeduct ? Math.min(premium, type.maxDeduct) : 0;
-
-          return (
-            <div key={type.key} className={`rounded-xl border p-4 transition-all ${hasCoverage ? `${type.bg} ${type.border}` : "border-dashed border-muted-foreground/30 hover:border-muted-foreground/50"}`}>
-              <div className="flex items-start gap-3">
-                <div className={`rounded-full p-2 shrink-0 ${hasCoverage ? type.bg : "bg-muted/50"}`}>
-                  <Icon className={`h-4 w-4 ${hasCoverage ? type.iconColor : "text-muted-foreground"}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm">{type.label}</span>
-                    <span className="text-xs text-muted-foreground">{type.sublabel}</span>
-                    {hasCoverage
-                      ? <span className="ml-auto text-xs text-emerald-600 font-medium flex items-center gap-0.5"><CheckCircle2 className="h-3.5 w-3.5" /> มีแล้ว</span>
-                      : <span className="ml-auto text-xs text-red-500 font-medium flex items-center gap-0.5"><AlertCircle className="h-3.5 w-3.5" /> ยังไม่มี</span>
-                    }
-                  </div>
-
-                  {!hasCoverage && (
-                    <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
-                      ⚠️ {type.risk}
-                    </p>
-                  )}
-
-                  <div className="flex items-center gap-2 mt-1">
-                    <Label className="text-xs shrink-0 text-muted-foreground">เบี้ย/ปี (บาท)</Label>
-                    <Input
-                      type="number" min={0}
-                      className="h-7 text-sm"
-                      value={premium || ""}
-                      placeholder="0"
-                      onChange={e => upd(type.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof type.key])}
-                    />
-                  </div>
-                  {hasCoverage && taxSaving > 0 && (
-                    <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1.5">
-                      💡 {type.deductHint} · คุณลดหย่อนได้ ฿{taxSaving.toLocaleString("th-TH")}
-                    </p>
-                  )}
-                  {!hasCoverage && (
-                    <p className="text-xs text-muted-foreground mt-1">{type.deductHint}</p>
-                  )}
-                </div>
+      {/* ── Per-insurance cards: premium + sum insured grouped ── */}
+      {COVERAGE_TYPES.map(type => {
+        const annual = p[type.premiumKey] as number;
+        const monthly = annual > 0 ? Math.round(annual / 12) : 0;
+        return (
+          <Card key={type.premiumKey}>
+            <CardHeader className="pb-3 pt-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                {type.label}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 pb-5">
+              {/* Monthly premium */}
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">เบี้ย/เดือน (บาท)</Label>
+                <Input
+                  type="number" min={0} value={monthly || ""} placeholder="0"
+                  onChange={e => upd(type.premiumKey, (Math.round((Number(e.target.value) || 0) * 12)) as FinancialProfile[typeof type.premiumKey])}
+                />
+                {annual > 0
+                  ? <p className="text-xs text-muted-foreground">= {thb(annual)}/ปี · {type.deductHint}</p>
+                  : <p className="text-xs text-muted-foreground">{type.deductHint}</p>
+                }
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ── CTA to dedicated insurance page ── */}
-      <Link href="/insurance">
-        <div className="rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors p-4 flex items-center justify-between cursor-pointer group">
-          <div>
-            <p className="font-semibold text-sm">วิเคราะห์ความคุ้มครองเชิงลึก</p>
-            <p className="text-xs text-muted-foreground mt-0.5">ดูคะแนนความคุ้มครอง · คำแนะนำเฉพาะตัว · จัดการประกันทั้งหมด</p>
-          </div>
-          <ExternalLink className="h-4 w-4 text-primary shrink-0 group-hover:translate-x-0.5 transition-transform" />
-        </div>
-      </Link>
+              {/* Sum insured / coverage */}
+              <NumField
+                label={type.coverageLabel}
+                value={ins[type.coverageKey]}
+                onChange={v => updIns(type.coverageKey, v)}
+                hint={type.coverageHint}
+              />
+            </CardContent>
+          </Card>
+        );
+      })}
 
     </div>
   );
@@ -1447,9 +1415,15 @@ export default function MyDataPage() {
     }
   }, []);
   const [profile, setProfile] = useState<FinancialProfile>(defaultProfile);
+  const [ins, setIns]           = useState<InsuranceState>(defaultInsurance);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+
+  const updIns = useCallback((k: keyof InsuranceState, v: number) => {
+    setIns(s => ({ ...s, [k]: v }));
+    setSaved(false);
+  }, []);
 
   useEffect(() => {
     fetch("/api/user/financial-profile").then(r => r.json()).then(res => {
@@ -1492,6 +1466,18 @@ export default function MyDataPage() {
       }
       setLoading(false);
     }).catch(() => setLoading(false));
+
+    fetch("/api/insurance").then(r => r.json()).then(res => {
+      if (res.data) {
+        setIns({
+          lifeCoverageAmount:          Number(res.data.lifeCoverageAmount ?? 0),
+          healthCoveragePerYear:       Number(res.data.healthCoveragePerYear ?? 0),
+          parentHealthCoveragePerYear: Number(res.data.parentHealthCoveragePerYear ?? 0),
+          annuityCoverageAmount:       Number(res.data.annuityCoverageAmount ?? 0),
+          spouseLifeCoverageAmount:    Number(res.data.spouseLifeCoverageAmount ?? 0),
+        });
+      }
+    }).catch(() => {});
   }, []);
 
   const upd = useCallback(<K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => {
@@ -1502,11 +1488,25 @@ export default function MyDataPage() {
   async function handleSave() {
     setSaving(true);
     try {
-      await fetch("/api/user/financial-profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profile),
-      });
+      await Promise.all([
+        fetch("/api/user/financial-profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        }),
+        fetch("/api/insurance", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lifeInsurancePremium:         profile.lifeInsurancePremium,
+            healthInsurancePremium:       profile.healthInsurancePremium,
+            parentHealthInsurancePremium: profile.parentHealthInsurancePremium,
+            annuityInsurancePremium:      profile.annuityInsurancePremium,
+            spouseLifeInsurancePremium:   profile.spouseLifeInsurancePremium,
+            ...ins,
+          }),
+        }),
+      ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } finally {
@@ -1557,7 +1557,7 @@ export default function MyDataPage() {
 
       {/* Tab Content */}
       {tab === "income"      && <IncomeTab      p={profile} upd={upd} />}
-      {tab === "insurance"   && <InsuranceTab   p={profile} upd={upd} />}
+      {tab === "insurance"   && <InsuranceTab   p={profile} upd={upd} ins={ins} updIns={updIns} />}
       {tab === "investment"  && <InvestmentTab  p={profile} upd={upd} />}
       {tab === "debts"       && <DebtsTab       p={profile} upd={upd} />}
 

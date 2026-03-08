@@ -9,26 +9,24 @@ import {
   ChevronDown,
   ChevronRight,
   Calculator,
-  Target,
   Shield,
   MessageSquareText,
   Settings,
   TrendingUp,
   LogOut,
   Wrench,
-  MapPin,
-  ClipboardList,
   BarChart3,
   Menu,
   X,
   Brain,
   BookOpen,
+  Target,
   GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const financeToolPaths = ["/tax", "/insurance", "/goals", "/tools"];
-const assessmentPaths = ["/assessment"];
+const financeToolPaths = ["/tax", "/insurance", "/tools"];
+const myDataPaths = ["/my-data", "/assessment"];
 
 function NavContent({ onNavClick }: { onNavClick?: () => void }) {
   const pathname = usePathname();
@@ -39,8 +37,8 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
 
   const isFinanceTool = financeToolPaths.some((p) => pathname.startsWith(p));
   const [toolsOpen, setToolsOpen] = useState(isFinanceTool);
-  const isAssessment = assessmentPaths.some((p) => pathname.startsWith(p));
-  const [assessOpen, setAssessOpen] = useState(isAssessment);
+  const isMyData = myDataPaths.some((p) => pathname.startsWith(p));
+  const [myDataOpen, setMyDataOpen] = useState(isMyData);
 
   return (
     <>
@@ -53,8 +51,34 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
       {/* Nav */}
       <nav className="flex flex-col gap-1 flex-1">
         <NavItem href="/dashboard" label="แดชบอร์ด" icon={LayoutDashboard} active={pathname === "/dashboard"} onClick={onNavClick} />
-        <NavItem href="/my-data" label="ข้อมูลของฉัน" icon={Database} active={pathname.startsWith("/my-data")} onClick={onNavClick} />
+
+        {/* My Data (collapsible) */}
+        <button
+          onClick={() => setMyDataOpen((o) => !o)}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium w-full transition-colors",
+            isMyData
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <Database className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">ข้อมูลของฉัน</span>
+          {myDataOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        </button>
+
+        {myDataOpen && (
+          <div className="ml-4 flex flex-col gap-1 border-l pl-3">
+            <NavItem href="/my-data"                label="ข้อมูลส่วนตัว"     icon={Database} active={pathname === "/my-data"}                         onClick={onNavClick} />
+            <NavItem href="/my-data/goals"          label="เป้าหมาย"          icon={Target}   active={pathname.startsWith("/my-data/goals")}           onClick={onNavClick} />
+            <NavItem href="/assessment/risk"        label="ประเมินความเสี่ยง" icon={Shield}   active={pathname.startsWith("/assessment/risk")}         onClick={onNavClick} />
+            <NavItem href="/assessment/personality" label="บุคลิกภาพ"          icon={Brain}    active={pathname.startsWith("/assessment/personality")}  onClick={onNavClick} />
+            <NavItem href="/assessment/knowledge"   label="ความรู้การเงิน"     icon={BookOpen} active={pathname.startsWith("/assessment/knowledge")}    onClick={onNavClick} />
+          </div>
+        )}
+
         <NavItem href="/financial-plan" label="Financial Analysis" icon={BarChart3} active={pathname.startsWith("/financial-plan")} onClick={onNavClick} />
+        <NavItem href="/lineage" label="เส้นทางชีวิต" icon={GitBranch} active={pathname.startsWith("/lineage")} onClick={onNavClick} />
 
         {/* Finance Tools (collapsible) */}
         <button
@@ -73,40 +97,12 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
 
         {toolsOpen && (
           <div className="ml-4 flex flex-col gap-1 border-l pl-3">
-            <NavItem href="/tax"        label="คำนวณภาษี"        icon={Calculator}    active={pathname.startsWith("/tax")}        onClick={onNavClick} />
-            <NavItem href="/insurance"  label="วิเคราะห์ประกัน"  icon={Shield}        active={pathname.startsWith("/insurance")}  onClick={onNavClick} />
-            <NavItem href="/goals"      label="เป้าหมายการเงิน"  icon={Target}        active={pathname.startsWith("/goals")}      onClick={onNavClick} />
-            <NavItem href="/tools/risk" label="ประเมินความเสี่ยง" icon={ClipboardList} active={pathname.startsWith("/tools/risk")} onClick={onNavClick} />
-          </div>
-        )}
-
-        {/* Self Assessment (collapsible) */}
-        <button
-          onClick={() => setAssessOpen((o) => !o)}
-          className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium w-full transition-colors",
-            isAssessment
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          )}
-        >
-          <ClipboardList className="h-4 w-4 shrink-0" />
-          <span className="flex-1 text-left">Self Assessment</span>
-          {assessOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        </button>
-
-        {assessOpen && (
-          <div className="ml-4 flex flex-col gap-1 border-l pl-3">
-            <NavItem href="/assessment"              label="ภาพรวม"          icon={LayoutDashboard} active={pathname === "/assessment"}                    onClick={onNavClick} />
-            <NavItem href="/assessment/risk"         label="ความเสี่ยง"       icon={Shield}          active={pathname.startsWith("/assessment/risk")}        onClick={onNavClick} />
-            <NavItem href="/assessment/personality"  label="บุคลิกภาพ"       icon={Brain}           active={pathname.startsWith("/assessment/personality")}  onClick={onNavClick} />
-            <NavItem href="/assessment/knowledge"    label="ความรู้การเงิน"  icon={BookOpen}        active={pathname.startsWith("/assessment/knowledge")}    onClick={onNavClick} />
-            <NavItem href="/assessment/goals"        label="เป้าหมาย"        icon={Target}          active={pathname.startsWith("/assessment/goals")}        onClick={onNavClick} />
+            <NavItem href="/tax"      label="คำนวณภาษี"       icon={Calculator} active={pathname.startsWith("/tax")}       onClick={onNavClick} />
+            <NavItem href="/insurance" label="วิเคราะห์ประกัน" icon={Shield}     active={pathname.startsWith("/insurance")} onClick={onNavClick} />
           </div>
         )}
 
         <NavItem href="/ai-chat"  label="AI ที่ปรึกษา" icon={MessageSquareText} active={pathname.startsWith("/ai-chat")}  onClick={onNavClick} />
-        <NavItem href="/lineage"  label="Lineage"       icon={GitBranch}        active={pathname.startsWith("/lineage")}  onClick={onNavClick} />
         <NavItem href="/settings" label="ตั้งค่าบัญชี" icon={Settings}         active={pathname.startsWith("/settings")} onClick={onNavClick} />
       </nav>
 

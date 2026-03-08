@@ -13,6 +13,9 @@ const InsuranceSchema = z.object({
   // Coverage details (for recommendation engine)
   lifeCoverageAmount: z.number().min(0).optional(),
   healthCoveragePerYear: z.number().min(0).optional(),
+  parentHealthCoveragePerYear: z.number().min(0).optional(),
+  annuityCoverageAmount: z.number().min(0).optional(),
+  spouseLifeCoverageAmount: z.number().min(0).optional(),
   hasAccidentInsurance: z.boolean().optional(),
   hasCriticalIllness: z.boolean().optional(),
   hasDisabilityInsurance: z.boolean().optional(),

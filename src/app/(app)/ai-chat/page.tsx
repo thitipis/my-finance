@@ -165,7 +165,7 @@ function relativeDate(ts: number): string {
   return new Date(ts).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
 }
 
-function ThinkingIndicator({ model }: { model: string }) {
+function ThinkingIndicator({ model, startedAt }: { model: string; startedAt?: number }) {
   const steps = [
     "กำลังคิด...",
     "กำลังวิเคราะห์ข้อมูล...",
@@ -174,7 +174,8 @@ function ThinkingIndicator({ model }: { model: string }) {
     "กำลังตรวจสอบตัวเลข...",
   ];
   const [step, setStep] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
+  const initialElapsed = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+  const [elapsed, setElapsed] = useState(initialElapsed);
   useEffect(() => {
     const t1 = setInterval(() => setStep(s => (s + 1) % steps.length), 2500);
     const t2 = setInterval(() => setElapsed(s => s + 1), 1000);
@@ -202,13 +203,15 @@ interface GStreamState {
   sessionId: string;
   accumulated: string;
   done: boolean;
+  startedAt: number;
   listener: ((chunk: string, isDone: boolean) => void) | null;
 }
 let gStream: GStreamState | null = null;
+let gLastCompleted: { sessionId: string; accumulated: string } | null = null;
 
 function runStream(body: object, sessionId: string): GStreamState {
   const abort = new AbortController();
-  const g: GStreamState = { abort, sessionId, accumulated: "", done: false, listener: null };
+  const g: GStreamState = { abort, sessionId, accumulated: "", done: false, startedAt: Date.now(), listener: null };
   gStream = g;
   void (async () => {
     try {
@@ -238,6 +241,8 @@ function runStream(body: object, sessionId: string): GStreamState {
     } finally {
       g.done = true;
       if (gStream === g) gStream = null;
+      // Cache the result so it can be recovered if the component remounts after completion
+      if (g.accumulated) gLastCompleted = { sessionId: g.sessionId, accumulated: g.accumulated };
       g.listener?.("" , true);
     }
   })();
@@ -272,7 +277,6 @@ export default function AiChatPage() {
   const [saveError, setSaveError]           = useState("");
   const [loadingTopic, setLoadingTopic]     = useState<StarterTopic | null>(null);
   const [isStreaming, setIsStreaming]        = useState(false);
-  const [responseLength, setResponseLength] = useState<"short" | "medium" | "long">("medium");
   const [sessions, setSessions]             = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen]       = useState(true);
@@ -314,9 +318,6 @@ export default function AiChatPage() {
     // Restore history panel preference
     const pref = localStorage.getItem(`myfinance-history-open-${session.user.id}`);
     if (pref !== null) setHistoryOpen(pref === "1");
-    // Restore response length preference
-    const lenPref = localStorage.getItem(`myfinance-resplen-${session.user.id}`);
-    if (lenPref === "short" || lenPref === "medium" || lenPref === "long") setResponseLength(lenPref);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
@@ -325,19 +326,56 @@ export default function AiChatPage() {
     if (!currentSessionId || reconnectedRef.current) return;
     reconnectedRef.current = true;
     const g = gStream;
-    if (!g || g.done || g.sessionId !== currentSessionId) return;
-    setIsStreaming(true);
-    setMessages(prev => {
-      if (!prev.length) return prev;
-      const msgs = [...prev];
-      if (msgs[msgs.length - 1].role === "assistant") {
-        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+
+    // ── Case 1: Stream still running ─────────────────────────────────────────
+    if (g && !g.done && g.sessionId === currentSessionId) {
+      // Ensure there is an assistant bubble to write into (it may have been
+      // added while the component was unmounted, so setState was a no-op).
+      setMessages(prev => {
+        const msgs = [...prev];
+        if (msgs[msgs.length - 1]?.role !== "assistant") {
+          msgs.push({ role: "assistant", content: g.accumulated });
+        } else {
+          msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+        }
+        return msgs;
+      });
+      // Show loading spinner if content hasn't started yet, otherwise stream cursor.
+      // __START__ already fired (before component unmounted) so we must NOT rely on it again.
+      let reconLoading = !g.accumulated;
+      if (reconLoading) {
+        setLoading(true);
+      } else {
+        setIsStreaming(true);
       }
-      return msgs;
-    });
-    g.listener = (chunk, done) => {
-      if (chunk === "__START__") return;
-      if (done) {
+      g.listener = (chunk, done) => {
+        // __START__ won't fire again — handle defensively only
+        if (chunk === "__START__") {
+          reconLoading = false;
+          setLoading(false);
+          setIsStreaming(true);
+          return;
+        }
+        if (done) {
+          setMessages(prev => {
+            const msgs = [...prev];
+            if (msgs[msgs.length - 1]?.role === "assistant") {
+              msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+            } else if (g.accumulated) {
+              msgs.push({ role: "assistant", content: g.accumulated });
+            }
+            return msgs;
+          });
+          setLoading(false);
+          setIsStreaming(false);
+          return;
+        }
+        // First content chunk while still in loading phase → transition to streaming
+        if (reconLoading) {
+          reconLoading = false;
+          setLoading(false);
+          setIsStreaming(true);
+        }
         setMessages(prev => {
           const msgs = [...prev];
           if (msgs[msgs.length - 1]?.role === "assistant") {
@@ -345,17 +383,28 @@ export default function AiChatPage() {
           }
           return msgs;
         });
-        setIsStreaming(false);
-        return;
-      }
+      };
+      return;
+    }
+
+    // ── Case 2: Stream finished while away — recover cached response ──────────
+    const last = gLastCompleted;
+    if (last && last.sessionId === currentSessionId && last.accumulated) {
+      gLastCompleted = null;
       setMessages(prev => {
         const msgs = [...prev];
-        if (msgs[msgs.length - 1]?.role === "assistant") {
-          msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: g.accumulated };
+        const lastMsg = msgs[msgs.length - 1];
+        if (lastMsg?.role !== "assistant") {
+          // No assistant bubble yet (user navigated away before __START__ fired)
+          msgs.push({ role: "assistant", content: last.accumulated });
+        } else {
+          // Always overwrite — localStorage may have partial content from when the
+          // component unmounted mid-stream, so use the full accumulated text instead.
+          msgs[msgs.length - 1] = { ...lastMsg, content: last.accumulated };
         }
         return msgs;
       });
-    };
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionId]);
 
@@ -390,6 +439,15 @@ export default function AiChatPage() {
     const el = textareaRef.current;
     if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 180) + "px"; }
   }, [input]);
+
+  // Pre-fill input when arriving from Goals page with ?intent=create-goal
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("intent") === "create-goal") {
+      setInput("ฉันต้องการวางแผนเป้าหมายการเงินใหม่ ช่วยแนะนำขั้นตอนการตั้งเป้าหมายและช่วยคำนวณว่าต้องออมเดือนละเท่าไหร่ด้วยนะ");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleProviderChange = (p: Provider) => {
     setProvider(p);
@@ -479,7 +537,7 @@ export default function AiChatPage() {
     setLoading(true);
 
     const sessId = sessionIdRef.current!;
-    const g = runStream({ messages: history, responseLength }, sessId);
+    const g = runStream({ messages: history }, sessId);
 
     g.listener = (chunk, done) => {
       if (chunk === "__START__") {
@@ -933,7 +991,7 @@ export default function AiChatPage() {
                   <Sparkles className="h-4 w-4 text-white" />
                 </div>
                 <div className="bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3">
-                  <ThinkingIndicator model={effectiveModel} />
+                  <ThinkingIndicator model={effectiveModel} startedAt={gStream?.startedAt} />
                 </div>
               </div>
             )}
@@ -1000,26 +1058,8 @@ export default function AiChatPage() {
           )}
         </div>
 
-        {/* Footer: response length + disclaimer */}
-        <div className="flex items-center justify-between mt-2 px-0.5">
-          <div className="flex items-center bg-muted rounded-lg p-0.5 gap-0.5">
-            {(["short", "medium", "long"] as const).map(len => (
-              <button
-                key={len}
-                onClick={() => {
-                  setResponseLength(len);
-                  if (session?.user?.id) localStorage.setItem(`myfinance-resplen-${session.user.id}`, len);
-                }}
-                className={`text-xs px-3 py-1 rounded-md font-medium transition-all ${
-                  responseLength === len
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {len === "short" ? "⚡ สั้น" : len === "medium" ? "📝 กลาง" : "📚 ยาว"}
-              </button>
-            ))}
-          </div>
+        {/* Footer: disclaimer */}
+        <div className="flex items-center justify-end mt-2 px-0.5">
           <p className="text-xs text-muted-foreground/40">
             ตรวจสอบกับผู้เชี่ยวชาญก่อนตัดสินใจ
           </p>

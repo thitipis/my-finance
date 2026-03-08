@@ -4,21 +4,12 @@ import {
   X, RefreshCw, ChevronLeft,
   Target, Trash2, Pencil, Loader2, CheckCircle2, Flame,
   TrendingUp, Shield, Home, GraduationCap, Zap, Star,
-  BarChart3, GitBranch,
+  Plus,
 } from "lucide-react";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PX_PER_YEAR = 36;
-
-// ─── Scenario Return Rates ──────────────────────────────────────────────────
-const SCENARIO_RETURNS: Record<string, number> = { conservative: 0.04, moderate: 0.06, aggressive: 0.08 };
-const SCENARIO_LABELS = [
-  { key: "conservative", label: "Conservative", color: "#f59e0b", emoji: "🛡️" },
-  { key: "moderate",     label: "Moderate",     color: "#7c3aed", emoji: "⚖️" },
-  { key: "aggressive",   label: "Aggressive",   color: "#10b981", emoji: "🚀" },
-];
 
 // ─── Avatar Options ───────────────────────────────────────────────────────────
 const AVATARS = [
@@ -30,17 +21,17 @@ const AVATARS = [
   { id: "astronaut", emoji: "🧑‍🚀", label: "Astronaut" },
 ];
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-interface LifeStage {
+// ─── Types ────────────────────────────────────────────────────────────────────
+export interface LifeStage {
   id: string; ageFrom: number; ageTo: number;
   titleTh: string; descriptionTh: string; icon: string;
   allocEquity: number; allocBond: number; allocCash: number; colorHex: string;
 }
-interface TlEvent {
+export interface TlEvent {
   id: string; age: number; eventType: string; impact: string;
   title: string; description?: string | null; isAuto: boolean; isAI: boolean;
 }
-interface YrProj {
+export interface YrProj {
   age: number; year: number; netWorth: number; annualIncome: number;
   annualSavings: number; happiness: number; lifeStage: LifeStage | null;
   isRetired: boolean; isBroke: boolean;
@@ -56,7 +47,7 @@ interface LineageData {
 type AwarenessItem = { text: string; type: "warn" | "good" | "info" };
 
 // ─── Goal Types ───────────────────────────────────────────────────────────────
-type FullGoal = {
+export type FullGoal = {
   id: string; name: string; goalType: string;
   targetAmount: string; currentAmount: string;
   monthlyContribution: string; annualReturnRate: string;
@@ -78,7 +69,12 @@ function getGoalType(v: string) {
   return GOAL_TYPES.find(t => t.value === v) ?? GOAL_TYPES[GOAL_TYPES.length - 1];
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const EMPTY_GOAL = {
+  name: "", goalType: "custom", targetAmount: "",
+  currentAmount: "0", monthlyContribution: "", annualReturnRate: "7",
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function thb(n: number): string {
   return n >= 1_000_000
     ? `฿${(n / 1_000_000).toFixed(2)}M`
@@ -93,8 +89,8 @@ function compact(n: number): string {
   return `฿${Math.round(n).toLocaleString()}`;
 }
 
-// ─── Projection Engine ───────────────────────────────────────────────────────
-function computeProjections(data: LineageData, lifeExpectancy: number, riskReturnOverride?: number): YrProj[] {
+// ─── Projection Engine ────────────────────────────────────────────────────────
+function computeProjections(data: LineageData, lifeExpectancy: number): YrProj[] {
   const p    = data.profile ?? {};
   const plan = data.plan;
   const ls   = data.lifeStages ?? [];
@@ -110,7 +106,7 @@ function computeProjections(data: LineageData, lifeExpectancy: number, riskRetur
     .reduce<number>((s, v) => s + Number(v ?? 0), 0);
   const startWealth      = Math.max(currentInvest, Number(plan?.currentSavings ?? 0));
   const initialDebt      = Number(p.totalDebt ?? 0);
-  const riskReturn       = riskReturnOverride ?? (data.riskLevel === "aggressive" ? 0.08 : data.riskLevel === "conservative" ? 0.04 : 0.06);
+  const riskReturn       = data.riskLevel === "aggressive" ? 0.08 : data.riskLevel === "conservative" ? 0.04 : 0.06;
   const inflationRate    = Number(plan?.inflationRate ?? 3) / 100;
   const retirementAnnual = Number(plan?.monthlyRetirementNeeds ?? 0) * 12 || monthlyExpenses * 12;
   let netWorth = startWealth - initialDebt;
@@ -147,7 +143,7 @@ function computeProjections(data: LineageData, lifeExpectancy: number, riskRetur
   return out;
 }
 
-// ─── Auto Events ─────────────────────────────────────────────────────────────
+// ─── Auto Events ──────────────────────────────────────────────────────────────
 function genAutoEvents(data: LineageData, projections: YrProj[]): TlEvent[] {
   const evs: TlEvent[] = [];
   const plan = data.plan;
@@ -183,7 +179,7 @@ function genAutoEvents(data: LineageData, projections: YrProj[]): TlEvent[] {
   return evs;
 }
 
-// ─── Awareness Items ─────────────────────────────────────────────────────────
+// ─── Awareness Items ──────────────────────────────────────────────────────────
 function genAwarenessItems(
   age: number, proj: YrProj, data: LineageData,
   projections: YrProj[], fullGoals: FullGoal[]
@@ -195,7 +191,6 @@ function genAwarenessItems(
   const currentAge    = Number(plan?.currentAge ?? 30);
   const now           = new Date().getFullYear();
 
-  // Goal-specific awareness at projected completion age
   fullGoals.forEach(g => {
     const months = g.projection.monthsRemaining;
     if (months === null) return;
@@ -207,7 +202,6 @@ function genAwarenessItems(
         items.push({ text: `เป้าหมาย "${g.name}" อาจล่าช้า — พิจารณาเพิ่มยอดออมต่อเดือน`, type: "warn" });
     }
   });
-  // Goals from rawData that have a targetDate aligning with this age
   data.goals.forEach(g => {
     if (!g.targetDate) return;
     const goalAge = currentAge + (new Date(g.targetDate).getFullYear() - now);
@@ -254,209 +248,7 @@ function genAwarenessItems(
   return items;
 }
 
-// ─── Add Event Modal ─────────────────────────────────────────────────────────
-function UnifiedAddModal({ currentAge, lifeExpectancy, defaultAge, onEventSave, onGoalSave, onClose }: {
-  currentAge: number; lifeExpectancy: number; defaultAge: number;
-  onEventSave: (ev: TlEvent) => void;
-  onGoalSave: (g: FullGoal) => void;
-  onClose: () => void;
-}) {
-  const [step, setStep] = useState<"pick" | "event" | "goal">("pick");
-
-  // Event form state
-  const [age,       setAge]       = useState(String(defaultAge));
-  const [eventType, setEventType] = useState("custom");
-  const [impact,    setImpact]    = useState("positive");
-  const [title,     setTitle]     = useState("");
-  const [desc,      setDesc]      = useState("");
-
-  // Goal form state
-  const [goalForm, setGoalForm] = useState(EMPTY_GOAL);
-  const [goalErr,  setGoalErr]  = useState("");
-
-  const [saving, setSaving] = useState(false);
-
-  async function handleEventSave() {
-    if (!title.trim() || !age) return;
-    setSaving(true);
-    try {
-      const ageNum  = Number(age);
-      const yearNum = new Date().getFullYear() + (ageNum - currentAge);
-      const res     = await fetch("/api/lineage/events", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ age: ageNum, eventYear: yearNum, eventType, impact, title: title.trim(), description: desc.trim() || null }),
-      });
-      const data = await res.json();
-      if (data.data) {
-        onEventSave({ id: data.data.id, age: ageNum, eventType, impact, title: title.trim(), description: desc.trim() || null, isAuto: false, isAI: false });
-        onClose();
-      }
-    } finally { setSaving(false); }
-  }
-
-  const goalSet = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setGoalForm(p => ({ ...p, [k]: e.target.value }));
-
-  async function handleGoalSave(e: React.FormEvent) {
-    e.preventDefault();
-    const tNum = parseFloat(goalForm.targetAmount) || 0;
-    if (!goalForm.name.trim() || tNum <= 0) { setGoalErr("กรุณากรอกชื่อและจำนวนเงิน"); return; }
-    setSaving(true);
-    const res = await fetch("/api/goals", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: goalForm.name, goalType: goalForm.goalType,
-        targetAmount: tNum, currentAmount: parseFloat(goalForm.currentAmount) || 0,
-        monthlyContribution: parseFloat(goalForm.monthlyContribution) || 0,
-        annualReturnRate: parseFloat(goalForm.annualReturnRate) || 0,
-      }),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (!res.ok) { setGoalErr(data.error ?? "เกิดข้อผิดพลาด"); return; }
-    onGoalSave(data.data);
-    onClose();
-  }
-
-  const goalType = getGoalType(goalForm.goalType);
-
-  const stepTitle = step === "pick" ? "เพิ่มอะไร?" : step === "event" ? "เพิ่มเหตุการณ์ชีวิต" : "เพิ่มเป้าหมายการเงิน";
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-
-        {/* Modal header */}
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2">
-            {step !== "pick" && (
-              <button onClick={() => setStep("pick")} className="text-slate-400 hover:text-slate-600 transition-colors">
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-            )}
-            <h3 className="font-bold text-slate-800 text-lg">{stepTitle}</h3>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
-        </div>
-
-        {/* Step: Pick type */}
-        {step === "pick" && (
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setStep("event")}
-              className="flex flex-col items-center gap-3 p-5 rounded-2xl border-2 border-slate-200 hover:border-violet-400 hover:bg-violet-50 transition-all group">
-              <span className="text-3xl">📅</span>
-              <div className="text-center">
-                <p className="font-bold text-slate-800 text-sm group-hover:text-violet-700">เหตุการณ์ชีวิต</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">บันทึกเหตุการณ์ในไทม์ไลน์</p>
-              </div>
-            </button>
-            <button
-              onClick={() => setStep("goal")}
-              className="flex flex-col items-center gap-3 p-5 rounded-2xl border-2 border-slate-200 hover:border-violet-400 hover:bg-violet-50 transition-all group">
-              <span className="text-3xl">🏆</span>
-              <div className="text-center">
-                <p className="font-bold text-slate-800 text-sm group-hover:text-violet-700">เป้าหมายการเงิน</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">ตั้งเป้าและติดตามความคืบหน้า</p>
-              </div>
-            </button>
-          </div>
-        )}
-
-        {/* Step: Add event */}
-        {step === "event" && (
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">ชื่อเหตุการณ์</label>
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="เช่น ซื้อบ้านหลังแรก, ลูกเกิด" className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">อายุ (ปี)</label>
-                <input type="number" min={currentAge} max={lifeExpectancy} value={age} onChange={e => setAge(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">ประเภท</label>
-                <select value={eventType} onChange={e => setEventType(e.target.value)} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
-                  <option value="happy">😊 ความสุข</option>
-                  <option value="goal">🏆 เป้าหมาย</option>
-                  <option value="crisis">⚠️ ความท้าทาย</option>
-                  <option value="allocation">📊 ปรับพอร์ต</option>
-                  <option value="custom">📌 อื่นๆ</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">ผลกระทบ</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["positive", "neutral", "negative"] as const).map(v => (
-                  <button key={v} onClick={() => setImpact(v)} className={cn("rounded-xl py-2 text-xs font-semibold border transition-all", impact === v ? "bg-violet-600 text-white border-violet-600" : "border-slate-200 text-slate-600 hover:border-violet-400")}>
-                    {v === "positive" ? "😊 บวก" : v === "neutral" ? "😐 กลาง" : "😟 ลบ"}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">รายละเอียด</label>
-              <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="เพิ่มเติม..." className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none" />
-            </div>
-            <button onClick={handleEventSave} disabled={saving || !title.trim()} className="w-full bg-violet-600 text-white font-bold py-3 rounded-xl hover:bg-violet-700 disabled:opacity-50 transition-all text-sm">
-              {saving ? "กำลังบันทึก..." : "บันทึกเหตุการณ์"}
-            </button>
-          </div>
-        )}
-
-        {/* Step: Add goal */}
-        {step === "goal" && (
-          <form onSubmit={handleGoalSave} className="space-y-3">
-            <div className="flex flex-wrap gap-1.5">
-              {GOAL_TYPES.map(t => (
-                <button key={t.value} type="button"
-                  onClick={() => setGoalForm(p => ({ ...p, goalType: t.value }))}
-                  className={cn(
-                    "flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border font-medium transition-all",
-                    goalForm.goalType === t.value ? "text-white border-transparent" : "text-slate-500 hover:border-slate-400"
-                  )}
-                  style={goalForm.goalType === t.value ? { background: goalType.color, borderColor: goalType.color } : {}}>
-                  <t.Icon className="h-3 w-3" />{t.label}
-                </button>
-              ))}
-            </div>
-            <input required value={goalForm.name} onChange={goalSet("name")}
-              placeholder="ชื่อ เช่น ซื้อบ้าน, กองทุนฉุกเฉิน"
-              className="w-full h-9 rounded-xl border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-violet-300" />
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { k: "targetAmount",        label: "เป้า (฿)",          req: true  },
-                { k: "currentAmount",       label: "มีแล้ว (฿)",        req: false },
-                { k: "monthlyContribution", label: "ออม/เดือน (฿)",     req: false },
-                { k: "annualReturnRate",    label: "ผลตอบแทน (%/ปี)",  req: false },
-              ].map(({ k, label, req }) => (
-                <div key={k}>
-                  <label className="text-[11px] font-semibold text-slate-500">{label}</label>
-                  <input required={req} type="number" min={0}
-                    step={k === "annualReturnRate" ? 0.5 : 1}
-                    value={(goalForm as Record<string, string>)[k]}
-                    onChange={goalSet(k)}
-                    className="w-full h-9 rounded-xl border px-3 text-sm bg-background mt-0.5 focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                </div>
-              ))}
-            </div>
-            {goalErr && <p className="text-xs text-red-500">{goalErr}</p>}
-            <button type="submit" disabled={saving}
-              className="w-full h-10 rounded-xl bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-violet-700 disabled:opacity-60">
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-              บันทึกเป้าหมาย
-            </button>
-          </form>
-        )}
-
-      </div>
-    </div>
-  );
-}
-
-// ─── Goal Ring ────────────────────────────────────────────────────────────────
+// ─── Goal Ring ─────────────────────────────────────────────────────────────────
 function GoalRing({ pct, color, size = 52 }: { pct: number; color: string; size?: number }) {
   const r    = (size - 8) / 2;
   const c    = 2 * Math.PI * r;
@@ -470,11 +262,9 @@ function GoalRing({ pct, color, size = 52 }: { pct: number; color: string; size?
   );
 }
 
-// ─── Goal Row Card ────────────────────────────────────────────────────────────
+// ─── Goal Row Card ─────────────────────────────────────────────────────────────
 function GoalRowCard({ goal, onDelete, onUpdate }: {
-  goal: FullGoal;
-  onDelete: (id: string) => void;
-  onUpdate: (g: FullGoal) => void;
+  goal: FullGoal; onDelete: (id: string) => void; onUpdate: (g: FullGoal) => void;
 }) {
   const type    = getGoalType(goal.goalType);
   const pct     = goal.projection.progressPercent;
@@ -602,50 +392,409 @@ function GoalRowCard({ goal, onDelete, onUpdate }: {
   );
 }
 
-// ─── Inline Add Goal ──────────────────────────────────────────────────────────
-const EMPTY_GOAL = {
-  name: "", goalType: "custom", targetAmount: "",
-  currentAmount: "0", monthlyContribution: "", annualReturnRate: "7",
-};
+// ─── Unified Add Modal ────────────────────────────────────────────────────────
+function UnifiedAddModal({ currentAge, lifeExpectancy, defaultAge, onEventSave, onGoalSave, onClose }: {
+  currentAge: number; lifeExpectancy: number; defaultAge: number;
+  onEventSave: (ev: TlEvent) => void;
+  onGoalSave: (g: FullGoal) => void;
+  onClose: () => void;
+}) {
+  const [step, setStep] = useState<"pick" | "event" | "goal">("pick");
+  const [age,       setAge]       = useState(String(defaultAge));
+  const [eventType, setEventType] = useState("custom");
+  const [impact,    setImpact]    = useState("positive");
+  const [title,     setTitle]     = useState("");
+  const [desc,      setDesc]      = useState("");
+  const [goalForm,  setGoalForm]  = useState(EMPTY_GOAL);
+  const [goalErr,   setGoalErr]   = useState("");
+  const [saving,    setSaving]    = useState(false);
 
-// ─── Main Page ───────────────────────────────────────────────────────────────
-export default function LineagePage() {
-  const [rawData,        setRawData]        = useState<LineageData | null>(null);
-  const [lifeExpectancy, setLifeExpectancy] = useState(() => {
-    if (typeof window !== "undefined") {
-      const v = Number(localStorage.getItem("mf_life_expectancy"));
-      if (v >= 70 && v <= 100) return v;
-    }
-    return 85;
-  });
-  const [selectedAge,    setSelectedAge]    = useState(30);
-  const [currentAgeLocal, setCurrentAgeLocal] = useState(30);
-  const [avatarId,       setAvatarId]       = useState("human");
-  const [scenario,       setScenario]       = useState<"conservative" | "moderate" | "aggressive">("moderate");
-  const [manualEvents,   setManualEvents]   = useState<TlEvent[]>([]);
-  const [loading,        setLoading]        = useState(true);
-  const [isDragging,     setIsDragging]     = useState(false);
-  const [fullGoals,      setFullGoals]      = useState<FullGoal[]>([]);
+  async function handleEventSave() {
+    if (!title.trim() || !age) return;
+    setSaving(true);
+    try {
+      const ageNum  = Number(age);
+      const yearNum = new Date().getFullYear() + (ageNum - currentAge);
+      const res     = await fetch("/api/lineage/events", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ age: ageNum, eventYear: yearNum, eventType, impact, title: title.trim(), description: desc.trim() || null }),
+      });
+      const data = await res.json();
+      if (data.data) {
+        onEventSave({ id: data.data.id, age: ageNum, eventType, impact, title: title.trim(), description: desc.trim() || null, isAuto: false, isAI: false });
+        onClose();
+      }
+    } finally { setSaving(false); }
+  }
+
+  const goalSet = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setGoalForm(p => ({ ...p, [k]: e.target.value }));
+
+  async function handleGoalSave(e: React.FormEvent) {
+    e.preventDefault();
+    const tNum = parseFloat(goalForm.targetAmount) || 0;
+    if (!goalForm.name.trim() || tNum <= 0) { setGoalErr("กรุณากรอกชื่อและจำนวนเงิน"); return; }
+    setSaving(true);
+    const res = await fetch("/api/goals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: goalForm.name, goalType: goalForm.goalType,
+        targetAmount: tNum, currentAmount: parseFloat(goalForm.currentAmount) || 0,
+        monthlyContribution: parseFloat(goalForm.monthlyContribution) || 0,
+        annualReturnRate: parseFloat(goalForm.annualReturnRate) || 0,
+      }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (!res.ok) { setGoalErr(data.error ?? "เกิดข้อผิดพลาด"); return; }
+    onGoalSave(data.data);
+    onClose();
+  }
+
+  const goalType  = getGoalType(goalForm.goalType);
+  const stepTitle = step === "pick" ? "เพิ่มอะไร?" : step === "event" ? "เพิ่มเหตุการณ์ชีวิต" : "เพิ่มเป้าหมายการเงิน";
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            {step !== "pick" && (
+              <button onClick={() => setStep("pick")} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            )}
+            <h3 className="font-bold text-slate-800 text-lg">{stepTitle}</h3>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+        </div>
+
+        {step === "pick" && (
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={() => setStep("event")}
+              className="flex flex-col items-center gap-3 p-5 rounded-2xl border-2 border-slate-200 hover:border-violet-400 hover:bg-violet-50 transition-all group">
+              <span className="text-3xl">📅</span>
+              <div className="text-center">
+                <p className="font-bold text-slate-800 text-sm group-hover:text-violet-700">เหตุการณ์ชีวิต</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">บันทึกเหตุการณ์ในไทม์ไลน์</p>
+              </div>
+            </button>
+            <button onClick={() => setStep("goal")}
+              className="flex flex-col items-center gap-3 p-5 rounded-2xl border-2 border-slate-200 hover:border-violet-400 hover:bg-violet-50 transition-all group">
+              <span className="text-3xl">🏆</span>
+              <div className="text-center">
+                <p className="font-bold text-slate-800 text-sm group-hover:text-violet-700">เป้าหมายการเงิน</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">ตั้งเป้าและติดตามความคืบหน้า</p>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {step === "event" && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">ชื่อเหตุการณ์</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="เช่น ซื้อบ้านหลังแรก, ลูกเกิด"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">อายุ (ปี)</label>
+                <input type="number" min={currentAge} max={lifeExpectancy} value={age} onChange={e => setAge(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">ประเภท</label>
+                <select value={eventType} onChange={e => setEventType(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                  <option value="happy">😊 ความสุข</option>
+                  <option value="goal">🏆 เป้าหมาย</option>
+                  <option value="crisis">⚠️ ความท้าทาย</option>
+                  <option value="allocation">📊 ปรับพอร์ต</option>
+                  <option value="custom">📌 อื่นๆ</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">ผลกระทบ</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["positive", "neutral", "negative"] as const).map(v => (
+                  <button key={v} onClick={() => setImpact(v)} className={cn("rounded-xl py-2 text-xs font-semibold border transition-all",
+                    impact === v ? "bg-violet-600 text-white border-violet-600" : "border-slate-200 text-slate-600 hover:border-violet-400")}>
+                    {v === "positive" ? "😊 บวก" : v === "neutral" ? "😐 กลาง" : "😟 ลบ"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">รายละเอียด</label>
+              <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="เพิ่มเติม..."
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none" />
+            </div>
+            <button onClick={handleEventSave} disabled={saving || !title.trim()}
+              className="w-full bg-violet-600 text-white font-bold py-3 rounded-xl hover:bg-violet-700 disabled:opacity-50 transition-all text-sm">
+              {saving ? "กำลังบันทึก..." : "บันทึกเหตุการณ์"}
+            </button>
+          </div>
+        )}
+
+        {step === "goal" && (
+          <form onSubmit={handleGoalSave} className="space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              {GOAL_TYPES.map(t => (
+                <button key={t.value} type="button"
+                  onClick={() => setGoalForm(p => ({ ...p, goalType: t.value }))}
+                  className={cn(
+                    "flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border font-medium transition-all",
+                    goalForm.goalType === t.value ? "text-white border-transparent" : "text-slate-500 hover:border-slate-400"
+                  )}
+                  style={goalForm.goalType === t.value ? { background: goalType.color, borderColor: goalType.color } : {}}>
+                  <t.Icon className="h-3 w-3" />{t.label}
+                </button>
+              ))}
+            </div>
+            <input required value={goalForm.name} onChange={goalSet("name")}
+              placeholder="ชื่อ เช่น ซื้อบ้าน, กองทุนฉุกเฉิน"
+              className="w-full h-9 rounded-xl border px-3 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-violet-300" />
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { k: "targetAmount",        label: "เป้า (฿)",         req: true  },
+                { k: "currentAmount",       label: "มีแล้ว (฿)",       req: false },
+                { k: "monthlyContribution", label: "ออม/เดือน (฿)",    req: false },
+                { k: "annualReturnRate",    label: "ผลตอบแทน (%/ปี)", req: false },
+              ].map(({ k, label, req }) => (
+                <div key={k}>
+                  <label className="text-[11px] font-semibold text-slate-500">{label}</label>
+                  <input required={req} type="number" min={0}
+                    step={k === "annualReturnRate" ? 0.5 : 1}
+                    value={(goalForm as Record<string, string>)[k]}
+                    onChange={goalSet(k)}
+                    className="w-full h-9 rounded-xl border px-3 text-sm bg-background mt-0.5 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                </div>
+              ))}
+            </div>
+            {goalErr && <p className="text-xs text-red-500">{goalErr}</p>}
+            <button type="submit" disabled={saving}
+              className="w-full h-10 rounded-xl bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-1.5 hover:bg-violet-700 disabled:opacity-60">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              บันทึกเป้าหมาย
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Life Timeline Rail (left-panel only, controlled) ─────────────────────────
+export function LifeTimelineRail({
+  lifeExpectancy,
+  selectedAge,
+  onAgeChange,
+  onDataReady,
+}: {
+  lifeExpectancy: number;
+  selectedAge: number;
+  onAgeChange: (age: number, proj: YrProj | null) => void;
+  onDataReady?: (projections: YrProj[], events: TlEvent[], currentAge: number) => void;
+}) {
+  const [rawData,      setRawData]      = useState<LineageData | null>(null);
+  const [manualEvents, setManualEvents] = useState<TlEvent[]>([]);
+  const [avatarId,     setAvatarId]     = useState("human");
+  const [isDragging,   setIsDragging]   = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  const saveCurrentAge = useCallback((age: number) => {
-    fetch("/api/user/financial-plan", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ currentAge: age }),
-    }).catch(() => {});
+  useEffect(() => {
+    fetch("/api/lineage")
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(d => setRawData(d))
+      .catch(() => {});
   }, []);
+
+  const projections = useMemo(
+    () => rawData ? computeProjections(rawData, lifeExpectancy) : [],
+    [rawData, lifeExpectancy]
+  );
+  const events = useMemo(() => {
+    if (!rawData) return [];
+    return [...rawData.savedEvents, ...manualEvents, ...genAutoEvents(rawData, projections)];
+  }, [rawData, projections, manualEvents]);
+
+  // Report data to parent whenever projections/events change
+  useEffect(() => {
+    if (rawData && projections.length > 0)
+      onDataReady?.(projections, events, Number(rawData.plan?.currentAge ?? 30));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projections, events]);
+
+  const startAge      = projections[0]?.age ?? 18;
+  const endAge        = projections[projections.length - 1]?.age ?? lifeExpectancy;
+  const currentAge_   = Number(rawData?.plan?.currentAge ?? 30);
+  const retirementAge = Number(rawData?.plan?.retirementAge ?? 60);
+  const timelineH     = (endAge - startAge + 1) * PX_PER_YEAR;
+  const avatar        = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
+
+  const getAgeFromY = useCallback((clientY: number): number => {
+    if (!timelineRef.current) return selectedAge;
+    const rect = timelineRef.current.getBoundingClientRect();
+    const y    = clientY - rect.top + timelineRef.current.scrollTop;
+    return Math.max(startAge, Math.min(endAge, Math.round(y / PX_PER_YEAR) + startAge));
+  }, [startAge, endAge, selectedAge]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    const age = getAgeFromY(e.clientY);
+    onAgeChange(age, projections.find(p => p.age === age) ?? null);
+  }, [getAgeFromY, projections, onAgeChange]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const age = getAgeFromY(e.clientY);
+      onAgeChange(age, projections.find(p => p.age === age) ?? null);
+    };
+    const onUp = () => setIsDragging(false);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup",   onUp);
+    return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+  }, [isDragging, getAgeFromY, projections, onAgeChange]);
+
+  useEffect(() => {
+    if (!timelineRef.current || isDragging) return;
+    const col = timelineRef.current;
+    const y   = (selectedAge - startAge) * PX_PER_YEAR;
+    if (y < col.scrollTop + 48 || y > col.scrollTop + col.clientHeight - 48)
+      col.scrollTo({ top: y - col.clientHeight / 2, behavior: "smooth" });
+  }, [selectedAge, startAge, isDragging]);
+
+  if (!rawData || projections.length === 0) return (
+    <div className="w-48 flex-shrink-0 border-r border-slate-200 bg-white flex items-center justify-center">
+      <RefreshCw className="h-4 w-4 animate-spin text-slate-300" />
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col w-48 flex-shrink-0 border-r border-slate-200 bg-white">
+      {/* Avatar picker */}
+      <div className="px-2 py-1.5 border-b border-slate-100 flex items-center gap-0.5 justify-center flex-wrap">
+        {AVATARS.map(av => (
+          <button key={av.id} onClick={() => setAvatarId(av.id)} title={av.label}
+            className={cn("w-6 h-6 rounded text-xs flex items-center justify-center transition-all",
+              avatarId === av.id ? "bg-violet-100 ring-1 ring-violet-400" : "hover:bg-slate-50"
+            )}>
+            {av.emoji}
+          </button>
+        ))}
+      </div>
+      {/* Timeline scroll */}
+      <div
+        ref={timelineRef}
+        onMouseDown={handleMouseDown}
+        className="flex-1 overflow-y-auto overflow-x-hidden"
+        style={{ cursor: isDragging ? "grabbing" : "pointer", userSelect: "none" }}
+      >
+        <div style={{ height: timelineH, position: "relative" }}>
+          {rawData.lifeStages.map(stage => {
+            const top = (Math.max(stage.ageFrom, startAge) - startAge) * PX_PER_YEAR;
+            const h   = (Math.min(stage.ageTo, endAge) - Math.max(stage.ageFrom, startAge) + 1) * PX_PER_YEAR;
+            if (h <= 0) return null;
+            return (
+              <div key={stage.id} style={{ position: "absolute", left: 0, right: 0, top, height: h, background: `${stage.colorHex}10`, borderTop: `1.5px solid ${stage.colorHex}30` }}>
+                <span style={{ color: stage.colorHex }} className="text-[9px] font-bold absolute left-11 top-1 select-none whitespace-nowrap">
+                  {stage.icon} {stage.titleTh}
+                </span>
+              </div>
+            );
+          })}
+          <div style={{ position: "absolute", left: 36, top: 0, bottom: 0, width: 2, background: "#e2e8f0" }} />
+          {projections.map(pr => {
+            const top        = (pr.age - startAge) * PX_PER_YEAR;
+            const isSelected = pr.age === selectedAge;
+            const isCurrent  = pr.age === currentAge_;
+            const isRetire   = pr.age === retirementAge;
+            const show       = pr.age % 5 === 0 || isCurrent || isRetire || isSelected;
+            const rowEvents  = events.filter(e => e.age === pr.age);
+            return (
+              <div key={pr.age} style={{
+                position: "absolute", left: 0, right: 0, top, height: PX_PER_YEAR,
+                display: "flex", alignItems: "center",
+                background: isSelected ? "#f5f3ff" : "transparent",
+                transition: "background 0.1s",
+              }}>
+                <div style={{ width: 30, textAlign: "right", paddingRight: 4, flexShrink: 0 }}>
+                  {show && (
+                    <span style={{ fontSize: 10, fontFamily: "monospace",
+                      fontWeight: isSelected || isCurrent || isRetire ? 800 : 500,
+                      color: isCurrent ? "#d97706" : isRetire ? "#7c3aed" : isSelected ? "#7c3aed" : "#94a3b8" }}>
+                      {pr.age}
+                    </span>
+                  )}
+                </div>
+                <div style={{ width: 8, flexShrink: 0, position: "relative", height: "100%" }}>
+                  {(show || rowEvents.length > 0) && (
+                    <div style={{
+                      position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+                      width: isSelected ? 12 : isCurrent || isRetire ? 10 : 6,
+                      height: isSelected ? 12 : isCurrent || isRetire ? 10 : 6,
+                      borderRadius: "50%",
+                      background: isSelected ? "#7c3aed" : isCurrent ? "#f59e0b" : isRetire ? "#8b5cf6" : "#cbd5e1",
+                      border: isSelected ? "2px solid white" : "none",
+                      boxShadow: isSelected ? "0 0 0 3px #7c3aed30" : "none", zIndex: 2,
+                    }} />
+                  )}
+                </div>
+                {isSelected && (
+                  <div style={{ position: "absolute", left: 24, top: "50%", transform: "translateY(-50%)", zIndex: 10 }}
+                    onMouseDown={e => { e.stopPropagation(); setIsDragging(true); }}>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: "50%", background: "white",
+                      border: "2px solid #7c3aed", fontSize: 18,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      boxShadow: "0 2px 12px #7c3aed40",
+                      cursor: isDragging ? "grabbing" : "grab",
+                      transform: isDragging ? "scale(1.15)" : "scale(1)",
+                      transition: "transform 0.1s",
+                    }}>
+                      {avatar.emoji}
+                    </div>
+                  </div>
+                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 2, marginLeft: 6, overflow: "hidden" }}>
+                  {rowEvents.slice(0, 5).map(ev => (
+                    <div key={ev.id} style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                      background: ev.impact === "positive" ? "#34d399" : ev.impact === "negative" ? "#f87171" : "#94a3b8" }} />
+                  ))}
+                  {rowEvents.length > 5 && <span style={{ fontSize: 8, color: "#94a3b8" }}>+{rowEvents.length - 5}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Exported Component ───────────────────────────────────────────────────
+export function LifeTimelineSection({ externalLifeSpan }: { externalLifeSpan?: number }) {
+  const [rawData,       setRawData]       = useState<LineageData | null>(null);
+  const [selectedAge,   setSelectedAge]   = useState(30);
+  const [avatarId,      setAvatarId]      = useState("human");
+  const [manualEvents,  setManualEvents]  = useState<TlEvent[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [fullGoals,     setFullGoals]     = useState<FullGoal[]>([]);
+  const [showModal,     setShowModal]     = useState(false);
+  const [isDragging,    setIsDragging]    = useState(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
+
+  // Use external life span if provided, else default to 85
+  const lifeExpectancy = externalLifeSpan ?? 85;
 
   useEffect(() => {
     fetch("/api/lineage")
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(d => {
-        const age = Number(d.plan?.currentAge ?? 30);
-        setRawData(d);
-        setSelectedAge(age);
-        setCurrentAgeLocal(age);
-        setLoading(false);
-      })
+      .then(d => { setRawData(d); setSelectedAge(Number(d.plan?.currentAge ?? 30)); setLoading(false); })
       .catch(() => setLoading(false));
     fetch("/api/goals")
       .then(r => r.json())
@@ -653,9 +802,10 @@ export default function LineagePage() {
       .catch(() => {});
   }, []);
 
-  const projections = useMemo(() => rawData ? computeProjections(rawData, lifeExpectancy, SCENARIO_RETURNS[scenario]) : [], [rawData, lifeExpectancy, scenario]);
-  const maxNetWorth  = useMemo(() => Math.max(...projections.map(p => p.netWorth), 1), [projections]);
-  const scenarioColor = SCENARIO_LABELS.find(s => s.key === scenario)?.color ?? "#7c3aed";
+  const projections = useMemo(
+    () => rawData ? computeProjections(rawData, lifeExpectancy) : [],
+    [rawData, lifeExpectancy]
+  );
   const events = useMemo(() => {
     if (!rawData) return [];
     return [...rawData.savedEvents, ...manualEvents, ...genAutoEvents(rawData, projections)];
@@ -701,19 +851,6 @@ export default function LineagePage() {
       col.scrollTo({ top: y - col.clientHeight / 2, behavior: "smooth" });
   }, [selectedAge, startAge, isDragging]);
 
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
-      <RefreshCw className="h-5 w-5 animate-spin mr-2" /> กำลังโหลด...
-    </div>
-  );
-  if (!rawData) return <div className="p-8 text-muted-foreground">ไม่สามารถโหลดข้อมูลได้</div>;
-
-  const plan          = rawData.plan;
-  const currentAge_   = Number(plan?.currentAge ?? 30);
-  const retirementAge = Number(plan?.retirementAge ?? 60);
-  const timelineH     = (endAge - startAge + 1) * PX_PER_YEAR;
-  const currentProj   = projections.find(pr => pr.age === currentAge_);
-
   const handleGoalAdded = (g: FullGoal) => {
     setFullGoals(prev => [g, ...prev]);
     setRawData(prev => prev ? {
@@ -721,12 +858,10 @@ export default function LineagePage() {
       goals: [...prev.goals, { id: g.id, name: g.name, targetAmount: Number(g.targetAmount), targetDate: null, goalType: g.goalType }],
     } : prev);
   };
-
   const handleGoalDelete = (id: string) => {
     setFullGoals(prev => prev.filter(g => g.id !== id));
     setRawData(prev => prev ? { ...prev, goals: prev.goals.filter(g => g.id !== id) } : prev);
   };
-
   const handleGoalUpdate = (updated: FullGoal) => {
     setFullGoals(prev => prev.map(g => g.id === updated.id ? updated : g));
     setRawData(prev => prev ? {
@@ -737,118 +872,60 @@ export default function LineagePage() {
     } : prev);
   };
 
+  if (loading) return (
+    <div className="flex items-center justify-center h-32 text-muted-foreground">
+      <RefreshCw className="h-5 w-5 animate-spin mr-2" /> กำลังโหลด Life Timeline...
+    </div>
+  );
+  if (!rawData) return <div className="p-8 text-muted-foreground text-sm">ไม่สามารถโหลดข้อมูลไทม์ไลน์ได้</div>;
+
+  const plan          = rawData.plan;
+  const currentAge_   = Number(plan?.currentAge ?? 30);
+  const retirementAge = Number(plan?.retirementAge ?? 60);
+  const timelineH     = (endAge - startAge + 1) * PX_PER_YEAR;
+  const currentProj   = projections.find(pr => pr.age === currentAge_);
+
   return (
-    <div className="flex flex-col bg-slate-50"
-      style={{
-        position: "fixed",
-        top: 0,
-        left: "15rem",   /* sidebar w-60 = 15rem */
-        right: 0,
-        bottom: 0,
-        overflow: "hidden",
-        zIndex: 10,
-      }}
-    >
-
-      {/* Header / Shared Tab Nav */}
-      <div className="flex-shrink-0 bg-white border-b border-slate-100">
-        <div className="flex items-center px-5">
-          <div className="flex gap-0 flex-1 -mb-px overflow-x-auto">
-            <Link
-              href="/financial-plan"
-              className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/40"
-            >
-              <BarChart3 className="h-3.5 w-3.5 shrink-0" />
-              Financial Analysis
-            </Link>
-            <span className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 border-primary text-primary">
-              <GitBranch className="h-3.5 w-3.5 shrink-0" />
-              Life Timeline
-            </span>
+    <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white">
+      {/* Header bar */}
+      <div className="flex items-center justify-between px-5 py-2 bg-white border-b border-slate-100">
+        <div className="flex items-center gap-4 overflow-x-auto">
+          {[
+            { label: "Net Worth ตอนนี้",            value: compact(currentProj?.netWorth ?? 0),    color: "text-emerald-600" },
+            { label: `เกษียณ (${retirementAge} ปี)`, value: compact(projections.find(p => p.age === retirementAge)?.netWorth ?? 0), color: "text-violet-600" },
+            { label: "รายได้/ปี",  value: compact(currentProj?.annualIncome ?? 0),  color: "text-sky-600"    },
+            { label: "ออมได้/ปี",  value: compact(currentProj?.annualSavings ?? 0), color: "text-amber-600"  },
+            { label: "เป้าหมาย",  value: `${fullGoals.length} รายการ`,              color: "text-indigo-600" },
+          ].map(s => (
+            <div key={s.label} className="flex-shrink-0">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wide">{s.label}</p>
+              <p className={cn("text-base font-black leading-none mt-0.5", s.color)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 ml-4 shrink-0">
+          {/* Avatar picker */}
+          <div className="flex items-center gap-1">
+            {AVATARS.map(av => (
+              <button key={av.id} onClick={() => setAvatarId(av.id)} title={av.label}
+                className={cn("w-7 h-7 rounded-lg text-sm flex items-center justify-center transition-all",
+                  avatarId === av.id ? "bg-slate-100 ring-2 ring-violet-400" : "hover:bg-slate-50 text-slate-500"
+                )}>
+                {av.emoji}
+              </button>
+            ))}
           </div>
-          <div className="flex items-center gap-3 ml-2 shrink-0">
-            {/* Avatar picker */}
-            <div className="flex items-center gap-0.5">
-              {AVATARS.map(av => (
-                <button key={av.id} onClick={() => setAvatarId(av.id)} title={av.label}
-                  className={cn("w-7 h-7 rounded-lg text-sm flex items-center justify-center transition-all",
-                    avatarId === av.id ? "bg-violet-100 ring-2 ring-violet-400" : "hover:bg-slate-100 text-slate-500"
-                  )}>
-                  {av.emoji}
-                </button>
-              ))}
-            </div>
-            {/* Age input */}
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-400">อายุ</span>
-              <input
-                type="number" min={18} max={80}
-                value={currentAgeLocal}
-                onChange={e => {
-                  const v = Math.max(18, Math.min(80, Number(e.target.value) || 18));
-                  setCurrentAgeLocal(v);
-                  setSelectedAge(v);
-                  setRawData(prev => prev && prev.plan ? { ...prev, plan: { ...prev.plan, currentAge: v } } : prev);
-                  saveCurrentAge(v);
-                }}
-                className="w-12 border border-slate-200 rounded-md px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-2 focus:ring-violet-400"
-              />
-              <span className="text-xs text-slate-400">ปี</span>
-            </div>
-            {/* Life expectancy */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-slate-400 whitespace-nowrap">ถึง</span>
-              <input type="range" min={70} max={100} value={lifeExpectancy}
-                onChange={e => { const v = Number(e.target.value); setLifeExpectancy(v); localStorage.setItem("mf_life_expectancy", String(v)); }}
-                className="w-20 accent-violet-500" />
-              <span className="text-xs font-semibold text-violet-600 w-5">{lifeExpectancy}</span>
-            </div>
-            {/* Scenario selector */}
-            <div className="flex items-center gap-0.5 border border-slate-200 rounded-lg p-0.5">
-              {SCENARIO_LABELS.map(s => (
-                <button key={s.key} onClick={() => setScenario(s.key as "conservative" | "moderate" | "aggressive")}
-                  title={`${s.label} (${s.key === "conservative" ? "4%" : s.key === "moderate" ? "6%" : "8%"} return)`}
-                  className={cn(
-                    "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all",
-                    scenario === s.key ? "text-white shadow-sm" : "text-slate-400 hover:text-slate-600"
-                  )}
-                  style={scenario === s.key ? { background: s.color } : {}}
-                >
-                  <span>{s.emoji}</span>
-                  <span className="hidden sm:inline">{s.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <button onClick={() => setShowModal(true)}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 transition-colors">
+            <Plus className="h-3.5 w-3.5" /> เพิ่ม
+          </button>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="flex-shrink-0 bg-white border-b border-slate-100 px-5 py-2 flex items-center gap-6 overflow-x-auto">
-        {[
-          { label: "Net Worth ตอนนี้",          value: compact(currentProj?.netWorth ?? 0),    color: "text-emerald-600" },
-          { label: `เกษียณ (${retirementAge} ปี)`, value: compact(projections.find(p => p.age === retirementAge)?.netWorth ?? 0), color: "text-violet-600" },
-          { label: "รายได้/ปี",   value: compact(currentProj?.annualIncome ?? 0), color: "text-sky-600" },
-          { label: "ออมได้/ปี",   value: compact(currentProj?.annualSavings ?? 0), color: "text-amber-600" },
-          { label: "เป้าหมาย",    value: `${fullGoals.length} รายการ`, color: "text-indigo-600" },
-        ].map(s => (
-          <div key={s.label} className="flex-shrink-0">
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide">{s.label}</p>
-            <p className={cn("text-base font-black leading-none mt-0.5", s.color)}>{s.value}</p>
-          </div>
-        ))}
-        <div className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span>สถานการณ์:</span>
-          <span className="font-bold" style={{ color: scenarioColor }}>
-            {SCENARIO_LABELS.find(s => s.key === scenario)?.emoji} {SCENARIO_LABELS.find(s => s.key === scenario)?.label} ({scenario === "conservative" ? "4%" : scenario === "moderate" ? "6%" : "8%"}/ปี)
-          </span>
-        </div>
-      </div>
+      {/* Body: vertical timeline + right detail panel */}
+      <div className="flex" style={{ height: 620 }}>
 
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-
-        {/* Vertical Timeline */}
+        {/* Vertical Timeline column */}
         <div
           ref={timelineRef}
           onMouseDown={handleTimelineMouseDown}
@@ -931,50 +1008,10 @@ export default function LineagePage() {
                 </div>
               );
             })}
-            {/* Wealth arc SVG overlay */}
-            <svg
-              style={{ position: "absolute", right: 0, top: 0, width: 30, height: timelineH, pointerEvents: "none", zIndex: 3 }}
-              viewBox={`0 0 30 ${timelineH}`}
-            >
-              <defs>
-                <linearGradient id="wealthGrad" x1="0" x2="1" y1="0" y2="0">
-                  <stop offset="0%" stopColor={scenarioColor} stopOpacity={0} />
-                  <stop offset="100%" stopColor={scenarioColor} stopOpacity={0.5} />
-                </linearGradient>
-              </defs>
-              {projections.length > 1 && (
-                <polygon
-                  points={[
-                    `0,0`,
-                    ...projections.map(pr => {
-                      const y = (pr.age - startAge) * PX_PER_YEAR + PX_PER_YEAR / 2;
-                      const x = Math.min(30, (pr.netWorth / maxNetWorth) * 30);
-                      return `${x},${y}`;
-                    }),
-                    `0,${timelineH}`,
-                  ].join(" ")}
-                  fill="url(#wealthGrad)"
-                />
-              )}
-              {projections.length > 1 && (
-                <polyline
-                  points={projections.map(pr => {
-                    const y = (pr.age - startAge) * PX_PER_YEAR + PX_PER_YEAR / 2;
-                    const x = Math.min(30, (pr.netWorth / maxNetWorth) * 30);
-                    return `${x},${y}`;
-                  }).join(" ")}
-                  fill="none"
-                  stroke={scenarioColor}
-                  strokeWidth={1.5}
-                  strokeLinejoin="round"
-                  opacity={0.7}
-                />
-              )}
-            </svg>
           </div>
         </div>
 
-        {/* Right panel */}
+        {/* Right detail panel */}
         <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
           {selectedProj ? (
             <div className="max-w-xl space-y-4">
@@ -998,20 +1035,16 @@ export default function LineagePage() {
               </div>
 
               <div className="grid grid-cols-3 gap-3">
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">สินทรัพย์สุทธิ์</p>
-                  <p className={cn("text-xl font-black leading-tight", selectedProj.netWorth > 0 ? "text-emerald-600" : "text-red-500")}>
-                    {compact(selectedProj.netWorth)}
-                  </p>
-                </div>
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">รายได้/ปี</p>
-                  <p className="text-xl font-black text-slate-800 leading-tight">{compact(selectedProj.annualIncome)}</p>
-                </div>
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">ออมได้/ปี</p>
-                  <p className="text-xl font-black text-sky-600 leading-tight">{compact(selectedProj.annualSavings)}</p>
-                </div>
+                {[
+                  { label: "สินทรัพย์สุทธิ์", value: compact(selectedProj.netWorth), cls: selectedProj.netWorth > 0 ? "text-emerald-600" : "text-red-500" },
+                  { label: "รายได้/ปี",       value: compact(selectedProj.annualIncome), cls: "text-slate-800" },
+                  { label: "ออมได้/ปี",       value: compact(selectedProj.annualSavings), cls: "text-sky-600" },
+                ].map(({ label, value, cls }) => (
+                  <div key={label} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">{label}</p>
+                    <p className={cn("text-xl font-black leading-tight", cls)}>{value}</p>
+                  </div>
+                ))}
               </div>
 
               {eventsAtAge.length > 0 && (
@@ -1039,7 +1072,6 @@ export default function LineagePage() {
                 </div>
               )}
 
-              {/* Awareness card */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-50">
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">สิ่งที่ควรรู้ในวัยนี้</p>
@@ -1070,9 +1102,9 @@ export default function LineagePage() {
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-4">พอร์ตเป้าหมาย · {selectedProj.lifeStage.titleTh}</p>
                   <div className="space-y-3">
                     {[
-                      { label: "หุ้น · Equity",    pct: selectedProj.lifeStage.allocEquity, color: "#7c3aed" },
+                      { label: "หุ้น · Equity",     pct: selectedProj.lifeStage.allocEquity, color: "#7c3aed" },
                       { label: "ตราสารหนี้ · Bond", pct: selectedProj.lifeStage.allocBond,   color: "#0ea5e9" },
-                      { label: "เงินสด · Cash",   pct: selectedProj.lifeStage.allocCash,   color: "#10b981" },
+                      { label: "เงินสด · Cash",     pct: selectedProj.lifeStage.allocCash,   color: "#10b981" },
                     ].map(item => (
                       <div key={item.label}>
                         <div className="flex justify-between text-xs mb-1.5">
@@ -1088,7 +1120,6 @@ export default function LineagePage() {
                 </div>
               )}
 
-              {/* ── Goals Panel ──────────────────────────────────────────── */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between">
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
@@ -1104,17 +1135,11 @@ export default function LineagePage() {
                     </div>
                   ) : (
                     fullGoals.map(g => (
-                      <GoalRowCard
-                        key={g.id}
-                        goal={g}
-                        onDelete={handleGoalDelete}
-                        onUpdate={handleGoalUpdate}
-                      />
+                      <GoalRowCard key={g.id} goal={g} onDelete={handleGoalDelete} onUpdate={handleGoalUpdate} />
                     ))
                   )}
                 </div>
               </div>
-
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-slate-400 text-sm">
@@ -1124,6 +1149,16 @@ export default function LineagePage() {
         </div>
       </div>
 
+      {showModal && rawData && (
+        <UnifiedAddModal
+          currentAge={currentAge_}
+          lifeExpectancy={lifeExpectancy}
+          defaultAge={selectedAge}
+          onEventSave={ev => { setManualEvents(prev => [...prev, ev]); setShowModal(false); }}
+          onGoalSave={g => { handleGoalAdded(g); setShowModal(false); }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </div>
   );
 }
