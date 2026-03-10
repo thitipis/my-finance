@@ -18,6 +18,7 @@ const SCENARIO_LABELS = [
   { key: "conservative", label: "Conservative", color: "#f59e0b", emoji: "🛡️" },
   { key: "moderate",     label: "Moderate",     color: "#7c3aed", emoji: "⚖️" },
   { key: "aggressive",   label: "Aggressive",   color: "#10b981", emoji: "🚀" },
+  { key: "plan",         label: "จากแผน",       color: "#0ea5e9", emoji: "📈" },
 ];
 
 // ─── Avatar Options ───────────────────────────────────────────────────────────
@@ -113,6 +114,7 @@ function computeProjections(data: LineageData, lifeExpectancy: number, riskRetur
   const riskReturn       = riskReturnOverride ?? (data.riskLevel === "aggressive" ? 0.08 : data.riskLevel === "conservative" ? 0.04 : 0.06);
   const inflationRate    = Number(plan?.inflationRate ?? 3) / 100;
   const retirementAnnual = Number(plan?.monthlyRetirementNeeds ?? 0) * 12 || monthlyExpenses * 12;
+  const planMonthlyInvest: number | null = plan?.monthlyInvestable != null ? Number(plan.monthlyInvestable) : null;
   let netWorth = startWealth - initialDebt;
   let remDebt  = initialDebt;
   let curDebt  = monthlyDebtPmt;
@@ -130,7 +132,12 @@ function computeProjections(data: LineageData, lifeExpectancy: number, riskRetur
         remDebt = Math.max(0, remDebt + interest - curDebt * 12);
         if (remDebt <= 0) { remDebt = 0; curDebt = 0; }
       }
-      annualSavings = Math.max(0, annualIncome - annualExp - curDebt * 12);
+      if (planMonthlyInvest != null && planMonthlyInvest > 0) {
+        const monthly = planMonthlyInvest + (curDebt === 0 ? monthlyDebtPmt : 0);
+        annualSavings = Math.max(0, monthly * 12 * Math.pow(1.03, yi));
+      } else {
+        annualSavings = Math.max(0, annualIncome - annualExp - curDebt * 12);
+      }
       netWorth = (netWorth + annualSavings) * (1 + riskReturn);
     } else {
       netWorth = netWorth * 1.04 - retirementAnnual * Math.pow(1 + inflationRate, age - retirementAge);
@@ -181,6 +188,75 @@ function genAutoEvents(data: LineageData, projections: YrProj[]): TlEvent[] {
     evs.push({ id: "broke", age: brokeP.age, eventType: "crisis", impact: "negative",
       title: "🚨 เงินอาจหมด", description: "ปรับแผนออมเพิ่ม", isAuto: true, isAI: false });
   return evs;
+}
+
+// ─── Investment Timeline Events ─────────────────────────────────────────────────
+function genInvestmentTimelineEvents(
+  data: LineageData,
+  projections: YrProj[]
+): { negative: TlEvent[]; positive: TlEvent[] } {
+  const neg: TlEvent[] = [];
+  const pos: TlEvent[] = [];
+  const plan = data.plan;
+  const currentAge    = Number(plan?.currentAge ?? 30);
+  const retirementAge = Number(plan?.retirementAge ?? 60);
+  const riskLevel     = data.riskLevel ?? "moderate";
+  const lastAge       = projections[projections.length - 1]?.age ?? retirementAge;
+
+  const corrInfo = riskLevel === "aggressive"
+    ? { pct: "−28~50%", desc: "Aggressive กระทบหนัก" }
+    : riskLevel === "conservative"
+    ? { pct: "−8~18%",  desc: "Conservative ผันผวนน้อย" }
+    : { pct: "−15~25%", desc: "Moderate กระทบปานกลาง" };
+
+  // Market corrections every ~7 years
+  for (let yr = 7; currentAge + yr <= lastAge; yr += 7) {
+    const age = currentAge + yr;
+    neg.push({
+      id: `mkt_${age}`, age, eventType: "crisis", impact: "negative",
+      title: "📉 วิกฤตตลาด",
+      description: `${corrInfo.pct} · ${corrInfo.desc}`,
+      isAuto: true, isAI: false,
+    });
+  }
+
+  // Inflation warning every 10 years
+  for (let yr = 10; currentAge + yr <= lastAge; yr += 10) {
+    const age   = currentAge + yr;
+    const cumPct = Math.round((Math.pow(1.03, yr) - 1) * 100);
+    neg.push({
+      id: `inf_${age}`, age, eventType: "crisis", impact: "negative",
+      title: "🔥 เงินเฟ้อสะสม",
+      description: `ค่าเงินลดลงราว ${cumPct}%`,
+      isAuto: true, isAI: false,
+    });
+  }
+
+  // Pre-retirement de-risk (5 years before)
+  const preRetAge = retirementAge - 5;
+  if (preRetAge > currentAge) {
+    neg.push({
+      id: "pre_ret", age: preRetAge, eventType: "crisis", impact: "negative",
+      title: "⚠️ ลดความเสี่ยงพอร์ต",
+      description: "โยกไป Bond/Cash ก่อนเกษียณ",
+      isAuto: true, isAI: false,
+    });
+  }
+
+  // Net worth milestones (positive)
+  for (const m of [1_000_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000]) {
+    const crossed = projections.find((pr, i) => pr.netWorth >= m && (i === 0 || projections[i - 1].netWorth < m));
+    if (crossed) {
+      pos.push({
+        id: `nw_${m}`, age: crossed.age, eventType: "goal", impact: "positive",
+        title: `🏆 Net Worth ${m >= 1e6 ? (m / 1e6).toFixed(0) + "M" : (m / 1e3).toFixed(0) + "K"}`,
+        description: "ไมล์สโตนสำคัญ 🎉",
+        isAuto: true, isAI: false,
+      });
+    }
+  }
+
+  return { negative: neg, positive: pos };
 }
 
 // ─── Awareness Items ─────────────────────────────────────────────────────────
@@ -621,10 +697,9 @@ export default function LineagePage() {
   const [selectedAge,    setSelectedAge]    = useState(30);
   const [currentAgeLocal, setCurrentAgeLocal] = useState(30);
   const [avatarId,       setAvatarId]       = useState("human");
-  const [scenario,       setScenario]       = useState<"conservative" | "moderate" | "aggressive">("moderate");
+  const [scenario,       setScenario]       = useState<"conservative" | "moderate" | "aggressive" | "plan">("plan");
   const [manualEvents,   setManualEvents]   = useState<TlEvent[]>([]);
   const [loading,        setLoading]        = useState(true);
-  const [isDragging,     setIsDragging]     = useState(false);
   const [fullGoals,      setFullGoals]      = useState<FullGoal[]>([]);
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -653,9 +728,11 @@ export default function LineagePage() {
       .catch(() => {});
   }, []);
 
-  const projections = useMemo(() => rawData ? computeProjections(rawData, lifeExpectancy, SCENARIO_RETURNS[scenario]) : [], [rawData, lifeExpectancy, scenario]);
+  const planExpectedReturn = rawData?.plan?.expectedReturn != null ? Number(rawData.plan.expectedReturn) / 100 : null;
+  const activeScenarioRate = planExpectedReturn ?? 0.06;
+  const projections = useMemo(() => rawData ? computeProjections(rawData, lifeExpectancy, activeScenarioRate) : [], [rawData, lifeExpectancy, activeScenarioRate]);
   const maxNetWorth  = useMemo(() => Math.max(...projections.map(p => p.netWorth), 1), [projections]);
-  const scenarioColor = SCENARIO_LABELS.find(s => s.key === scenario)?.color ?? "#7c3aed";
+  const scenarioColor = planExpectedReturn !== null ? "#0ea5e9" : "#7c3aed";
   const events = useMemo(() => {
     if (!rawData) return [];
     return [...rawData.savedEvents, ...manualEvents, ...genAutoEvents(rawData, projections)];
@@ -671,35 +748,30 @@ export default function LineagePage() {
   );
   const avatar = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
 
-  const getAgeFromY = useCallback((clientY: number): number => {
-    if (!timelineRef.current) return selectedAge;
-    const rect = timelineRef.current.getBoundingClientRect();
-    const y    = clientY - rect.top + timelineRef.current.scrollTop;
-    return Math.max(startAge, Math.min(endAge, Math.round(y / PX_PER_YEAR) + startAge));
-  }, [startAge, endAge, selectedAge]);
+  const investEvents = useMemo(
+    () => rawData ? genInvestmentTimelineEvents(rawData, projections) : { negative: [], positive: [] },
+    [rawData, projections]
+  );
 
-  const handleTimelineMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-    setSelectedAge(getAgeFromY(e.clientY));
-  }, [getAgeFromY]);
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => setSelectedAge(getAgeFromY(e.clientY));
-    const onUp   = () => setIsDragging(false);
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup",   onUp);
-    return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
-  }, [isDragging, getAgeFromY]);
+  const timelineRows = useMemo(() => {
+    return projections.map(pr => {
+      const evNeg = [
+        ...events.filter(e => e.age === pr.age && e.impact === "negative"),
+        ...investEvents.negative.filter(e => e.age === pr.age),
+      ];
+      const evPos = [
+        ...events.filter(e => e.age === pr.age && e.impact !== "negative"),
+        ...investEvents.positive.filter(e => e.age === pr.age),
+      ];
+      return { age: pr.age, proj: pr, negative: evNeg, positive: evPos };
+    });
+  }, [projections, events, investEvents]);
 
   useEffect(() => {
-    if (!timelineRef.current || isDragging) return;
-    const col = timelineRef.current;
-    const y   = (selectedAge - startAge) * PX_PER_YEAR;
-    if (y < col.scrollTop + 48 || y > col.scrollTop + col.clientHeight - 48)
-      col.scrollTo({ top: y - col.clientHeight / 2, behavior: "smooth" });
-  }, [selectedAge, startAge, isDragging]);
+    if (!timelineRef.current) return;
+    const el = timelineRef.current.querySelector(`[data-age="${selectedAge}"]`);
+    if (el) (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [selectedAge]);
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
@@ -803,21 +875,14 @@ export default function LineagePage() {
                 className="w-20 accent-violet-500" />
               <span className="text-xs font-semibold text-violet-600 w-5">{lifeExpectancy}</span>
             </div>
-            {/* Scenario selector */}
-            <div className="flex items-center gap-0.5 border border-slate-200 rounded-lg p-0.5">
-              {SCENARIO_LABELS.map(s => (
-                <button key={s.key} onClick={() => setScenario(s.key as "conservative" | "moderate" | "aggressive")}
-                  title={`${s.label} (${s.key === "conservative" ? "4%" : s.key === "moderate" ? "6%" : "8%"} return)`}
-                  className={cn(
-                    "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all",
-                    scenario === s.key ? "text-white shadow-sm" : "text-slate-400 hover:text-slate-600"
-                  )}
-                  style={scenario === s.key ? { background: s.color } : {}}
-                >
-                  <span>{s.emoji}</span>
-                  <span className="hidden sm:inline">{s.label}</span>
-                </button>
-              ))}
+            {/* Scenario: show active rate (plan rate or default moderate) */}
+            <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-3 py-1">
+              <span className="text-[11px] font-semibold text-slate-500">อัตราผลตอบ:</span>
+              {planExpectedReturn !== null ? (
+                <span className="text-[11px] font-black" style={{ color: "#0ea5e9" }}>📈 {(planExpectedReturn * 100).toFixed(1)}%/ปี · จากแผน</span>
+              ) : (
+                <span className="text-[11px] font-black text-violet-500">6%/ปี · ค่าเริ่มต้น</span>
+              )}
             </div>
           </div>
         </div>
@@ -838,9 +903,9 @@ export default function LineagePage() {
           </div>
         ))}
         <div className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span>สถานการณ์:</span>
+          <span>อัตราผลตอบ:</span>
           <span className="font-bold" style={{ color: scenarioColor }}>
-            {SCENARIO_LABELS.find(s => s.key === scenario)?.emoji} {SCENARIO_LABELS.find(s => s.key === scenario)?.label} ({scenario === "conservative" ? "4%" : scenario === "moderate" ? "6%" : "8%"}/ปี)
+            {planExpectedReturn !== null ? `📈 จากแผน (${(planExpectedReturn * 100).toFixed(1)}%/ปี)` : "⚖️ ค่าเริ่มต้น (6%/ปี)"}
           </span>
         </div>
       </div>
@@ -848,239 +913,98 @@ export default function LineagePage() {
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Vertical Timeline */}
-        <div
-          ref={timelineRef}
-          onMouseDown={handleTimelineMouseDown}
-          className="w-48 flex-shrink-0 border-r border-slate-200 bg-white overflow-y-auto overflow-x-hidden"
-          style={{ cursor: isDragging ? "grabbing" : "pointer", userSelect: "none" }}
-        >
-          <div style={{ height: timelineH, position: "relative" }}>
-            {rawData.lifeStages.map(stage => {
-              const top = (Math.max(stage.ageFrom, startAge) - startAge) * PX_PER_YEAR;
-              const h   = (Math.min(stage.ageTo, endAge) - Math.max(stage.ageFrom, startAge) + 1) * PX_PER_YEAR;
-              if (h <= 0) return null;
-              return (
-                <div key={stage.id} style={{ position: "absolute", left: 0, right: 0, top, height: h, background: `${stage.colorHex}10`, borderTop: `1.5px solid ${stage.colorHex}30` }}>
-                  <span style={{ color: stage.colorHex }} className="text-[9px] font-bold absolute left-11 top-1 select-none whitespace-nowrap">
-                    {stage.icon} {stage.titleTh}
-                  </span>
-                </div>
-              );
-            })}
-            <div style={{ position: "absolute", left: 36, top: 0, bottom: 0, width: 2, background: "#e2e8f0" }} />
-            {projections.map(pr => {
-              const top        = (pr.age - startAge) * PX_PER_YEAR;
-              const isSelected = pr.age === selectedAge;
-              const isCurrent  = pr.age === currentAge_;
-              const isRetire   = pr.age === retirementAge;
-              const show       = pr.age % 5 === 0 || isCurrent || isRetire || isSelected;
-              const rowEvents  = events.filter(e => e.age === pr.age);
-              return (
-                <div key={pr.age} style={{
-                  position: "absolute", left: 0, right: 0, top, height: PX_PER_YEAR,
-                  display: "flex", alignItems: "center",
-                  background: isSelected ? "#f5f3ff" : "transparent",
-                  transition: "background 0.1s",
-                }}>
-                  <div style={{ width: 30, textAlign: "right", paddingRight: 4, flexShrink: 0 }}>
-                    {show && (
-                      <span style={{ fontSize: 10, fontFamily: "monospace",
-                        fontWeight: isSelected || isCurrent || isRetire ? 800 : 500,
-                        color: isCurrent ? "#d97706" : isRetire ? "#7c3aed" : isSelected ? "#7c3aed" : "#94a3b8" }}>
-                        {pr.age}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ width: 8, flexShrink: 0, position: "relative", height: "100%" }}>
-                    {(show || rowEvents.length > 0) && (
-                      <div style={{
-                        position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-                        width: isSelected ? 12 : isCurrent || isRetire ? 10 : 6,
-                        height: isSelected ? 12 : isCurrent || isRetire ? 10 : 6,
-                        borderRadius: "50%",
-                        background: isSelected ? "#7c3aed" : isCurrent ? "#f59e0b" : isRetire ? "#8b5cf6" : "#cbd5e1",
-                        border: isSelected ? "2px solid white" : "none",
-                        boxShadow: isSelected ? "0 0 0 3px #7c3aed30" : "none", zIndex: 2,
-                      }} />
-                    )}
-                  </div>
-                  {isSelected && (
-                    <div style={{ position: "absolute", left: 24, top: "50%", transform: "translateY(-50%)", zIndex: 10 }}
-                      onMouseDown={e => { e.stopPropagation(); setIsDragging(true); }}>
-                      <div style={{
-                        width: 32, height: 32, borderRadius: "50%", background: "white",
-                        border: "2px solid #7c3aed", fontSize: 18,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        boxShadow: "0 2px 12px #7c3aed40",
-                        cursor: isDragging ? "grabbing" : "grab",
-                        transform: isDragging ? "scale(1.15)" : "scale(1)",
-                        transition: "transform 0.1s",
-                      }}>
-                        {avatar.emoji}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ display: "flex", alignItems: "center", gap: 2, marginLeft: 6, overflow: "hidden" }}>
-                    {rowEvents.slice(0, 5).map(ev => (
-                      <div key={ev.id} style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-                        background: ev.impact === "positive" ? "#34d399" : ev.impact === "negative" ? "#f87171" : "#94a3b8" }} />
-                    ))}
-                    {rowEvents.length > 5 && <span style={{ fontSize: 8, color: "#94a3b8" }}>+{rowEvents.length - 5}</span>}
-                  </div>
-                </div>
-              );
-            })}
-            {/* Wealth arc SVG overlay */}
-            <svg
-              style={{ position: "absolute", right: 0, top: 0, width: 30, height: timelineH, pointerEvents: "none", zIndex: 3 }}
-              viewBox={`0 0 30 ${timelineH}`}
-            >
-              <defs>
-                <linearGradient id="wealthGrad" x1="0" x2="1" y1="0" y2="0">
-                  <stop offset="0%" stopColor={scenarioColor} stopOpacity={0} />
-                  <stop offset="100%" stopColor={scenarioColor} stopOpacity={0.5} />
-                </linearGradient>
-              </defs>
-              {projections.length > 1 && (
-                <polygon
-                  points={[
-                    `0,0`,
-                    ...projections.map(pr => {
-                      const y = (pr.age - startAge) * PX_PER_YEAR + PX_PER_YEAR / 2;
-                      const x = Math.min(30, (pr.netWorth / maxNetWorth) * 30);
-                      return `${x},${y}`;
-                    }),
-                    `0,${timelineH}`,
-                  ].join(" ")}
-                  fill="url(#wealthGrad)"
-                />
-              )}
-              {projections.length > 1 && (
-                <polyline
-                  points={projections.map(pr => {
-                    const y = (pr.age - startAge) * PX_PER_YEAR + PX_PER_YEAR / 2;
-                    const x = Math.min(30, (pr.netWorth / maxNetWorth) * 30);
-                    return `${x},${y}`;
-                  }).join(" ")}
-                  fill="none"
-                  stroke={scenarioColor}
-                  strokeWidth={1.5}
-                  strokeLinejoin="round"
-                  opacity={0.7}
-                />
-              )}
-            </svg>
-          </div>
-        </div>
-
-        {/* Right panel */}
-        <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+        {/* Left: Detail Panel */}
+        <div className="w-80 flex-shrink-0 border-r border-slate-200 bg-white overflow-y-auto">
           {selectedProj ? (
-            <div className="max-w-xl space-y-4">
+            <div className="p-4 space-y-3">
+
+              {/* Age header */}
               <div className="flex items-center gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-white shadow-sm border border-slate-100 flex items-center justify-center text-3xl flex-shrink-0">
+                <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-2xl flex-shrink-0">
                   {selectedProj.lifeStage?.icon ?? "📅"}
                 </div>
                 <div>
                   <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className="text-4xl font-black text-slate-900 leading-none">{selectedProj.age}</span>
-                    <span className="text-sm text-slate-400">ปี · {selectedProj.year}</span>
-                    {selectedProj.isRetired && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">เกษียณแล้ว</span>}
+                    <span className="text-3xl font-black text-slate-900 leading-none">{selectedProj.age}</span>
+                    <span className="text-xs text-slate-400">ปี · {selectedProj.year}</span>
+                    {selectedProj.isRetired && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">เกษียณแล้ว</span>
+                    )}
                   </div>
                   {selectedProj.lifeStage && (
                     <div className="mt-0.5">
-                      <span className="text-sm font-bold" style={{ color: selectedProj.lifeStage.colorHex }}>{selectedProj.lifeStage.titleTh}</span>
-                      <span className="text-xs text-slate-400 ml-2">{selectedProj.lifeStage.descriptionTh}</span>
+                      <span className="text-xs font-bold" style={{ color: selectedProj.lifeStage.colorHex }}>
+                        {selectedProj.lifeStage.titleTh}
+                      </span>
+                      <span className="text-[10px] text-slate-400 ml-1.5">{selectedProj.lifeStage.descriptionTh}</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">สินทรัพย์สุทธิ์</p>
-                  <p className={cn("text-xl font-black leading-tight", selectedProj.netWorth > 0 ? "text-emerald-600" : "text-red-500")}>
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-1.5">
+                <div className="bg-slate-50 rounded-xl p-2.5">
+                  <p className="text-[9px] text-slate-400 uppercase tracking-wide">สินทรัพย์สุทธิ์</p>
+                  <p className={cn("text-sm font-black leading-tight mt-0.5", selectedProj.netWorth > 0 ? "text-emerald-600" : "text-red-500")}>
                     {compact(selectedProj.netWorth)}
                   </p>
                 </div>
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">รายได้/ปี</p>
-                  <p className="text-xl font-black text-slate-800 leading-tight">{compact(selectedProj.annualIncome)}</p>
+                <div className="bg-slate-50 rounded-xl p-2.5">
+                  <p className="text-[9px] text-slate-400 uppercase tracking-wide">รายได้/ปี</p>
+                  <p className="text-sm font-black text-slate-800 leading-tight mt-0.5">{compact(selectedProj.annualIncome)}</p>
                 </div>
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">ออมได้/ปี</p>
-                  <p className="text-xl font-black text-sky-600 leading-tight">{compact(selectedProj.annualSavings)}</p>
+                <div className="bg-slate-50 rounded-xl p-2.5">
+                  <p className="text-[9px] text-slate-400 uppercase tracking-wide">ออมได้/ปี</p>
+                  <p className="text-sm font-black text-sky-600 leading-tight mt-0.5">{compact(selectedProj.annualSavings)}</p>
                 </div>
               </div>
 
-              {eventsAtAge.length > 0 && (
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-3">เหตุการณ์ในวัยนี้</p>
-                  <div className="flex flex-wrap gap-2">
-                    {eventsAtAge.map(ev => (
-                      <div key={ev.id} className={cn(
-                        "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium border",
-                        ev.impact === "positive" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                        ev.impact === "negative" ? "bg-red-50 text-red-700 border-red-200" :
-                        "bg-slate-50 text-slate-700 border-slate-200"
-                      )}>
-                        {ev.title}
-                        {ev.description && <span className="text-xs opacity-60">· {ev.description}</span>}
-                        {!ev.isAuto && (
-                          <button onClick={async () => {
-                            await fetch(`/api/lineage/events?id=${ev.id}`, { method: "DELETE" });
-                            setManualEvents(prev => prev.filter(me => me.id !== ev.id));
-                          }} className="ml-0.5 opacity-40 hover:opacity-80"><X className="h-3 w-3" /></button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+              {/* Awareness */}
+              <div className="rounded-xl border border-slate-100 overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-50 bg-slate-50">
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">สิ่งที่ควรรู้</p>
                 </div>
-              )}
-
-              {/* Awareness card */}
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-50">
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">สิ่งที่ควรรู้ในวัยนี้</p>
-                </div>
-                <div className="p-3 space-y-2">
+                <div className="p-2 space-y-1.5">
                   {awarenessItems.length > 0 ? awarenessItems.map((item, i) => (
                     <div key={i} className={cn(
-                      "flex items-start gap-2.5 px-3.5 py-3 rounded-xl text-sm leading-snug",
+                      "flex items-start gap-2 px-2.5 py-2 rounded-lg text-xs leading-snug",
                       item.type === "warn" ? "bg-amber-50 text-amber-800" :
                       item.type === "good" ? "bg-emerald-50 text-emerald-800" :
                       "bg-blue-50 text-blue-800"
                     )}>
-                      <span className="flex-shrink-0 text-base leading-none mt-0.5">
+                      <span className="flex-shrink-0 leading-none mt-0.5">
                         {item.type === "warn" ? "⚠️" : item.type === "good" ? "✅" : "💡"}
                       </span>
                       <span>{item.text}</span>
                     </div>
                   )) : (
-                    <div className="flex items-center gap-2 px-3.5 py-3 text-sm text-slate-400">
-                      <span>✨</span> ไม่มีรายการเตือน — การเงินอยู่ในเส้นทางที่ดี
+                    <div className="flex items-center gap-1.5 px-2.5 py-2 text-xs text-slate-400">
+                      <span>✨</span> การเงินอยู่ในเส้นทางที่ดี
                     </div>
                   )}
                 </div>
               </div>
 
+              {/* Life stage allocation */}
               {selectedProj.lifeStage && (
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-4">พอร์ตเป้าหมาย · {selectedProj.lifeStage.titleTh}</p>
-                  <div className="space-y-3">
+                <div className="rounded-xl border border-slate-100 p-3">
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-2.5">
+                    พอร์ตเป้าหมาย · {selectedProj.lifeStage.titleTh}
+                  </p>
+                  <div className="space-y-2">
                     {[
                       { label: "หุ้น · Equity",    pct: selectedProj.lifeStage.allocEquity, color: "#7c3aed" },
                       { label: "ตราสารหนี้ · Bond", pct: selectedProj.lifeStage.allocBond,   color: "#0ea5e9" },
-                      { label: "เงินสด · Cash",   pct: selectedProj.lifeStage.allocCash,   color: "#10b981" },
+                      { label: "เงินสด · Cash",     pct: selectedProj.lifeStage.allocCash,   color: "#10b981" },
                     ].map(item => (
                       <div key={item.label}>
-                        <div className="flex justify-between text-xs mb-1.5">
-                          <span className="text-slate-600 font-medium">{item.label}</span>
-                          <span className="font-black" style={{ color: item.color }}>{item.pct}%</span>
+                        <div className="flex justify-between text-[10px] mb-1">
+                          <span className="text-slate-600">{item.label}</span>
+                          <span className="font-bold" style={{ color: item.color }}>{item.pct}%</span>
                         </div>
-                        <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div style={{ width: `${item.pct}%`, background: item.color, height: "100%", borderRadius: 9999, transition: "width 0.4s ease" }} />
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div style={{ width: `${item.pct}%`, background: item.color }} className="h-full rounded-full transition-all duration-300" />
                         </div>
                       </div>
                     ))}
@@ -1088,28 +1012,23 @@ export default function LineagePage() {
                 </div>
               )}
 
-              {/* ── Goals Panel ──────────────────────────────────────────── */}
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between">
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
-                    <Target className="h-3.5 w-3.5" />
-                    เป้าหมายการเงิน {fullGoals.length > 0 && `(${fullGoals.length})`}
+              {/* Goals */}
+              <div className="rounded-xl border border-slate-100 overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-50 bg-slate-50 flex items-center justify-between">
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1">
+                    <Target className="h-3 w-3" />
+                    เป้าหมาย {fullGoals.length > 0 && `(${fullGoals.length})`}
                   </p>
                 </div>
-                <div className="p-3 space-y-2">
+                <div className="p-2 space-y-1.5">
                   {fullGoals.length === 0 ? (
-                    <div className="flex flex-col items-center py-8 text-slate-400 gap-3">
-                      <Target className="h-9 w-9 opacity-25" />
-                      <p className="text-xs text-center">ยังไม่มีเป้าหมายการเงิน<br />สร้างได้ผ่าน <span className="text-violet-500 font-medium">AI ที่ปรึกษา</span></p>
+                    <div className="flex flex-col items-center py-5 text-slate-400 gap-2">
+                      <Target className="h-7 w-7 opacity-25" />
+                      <p className="text-xs text-center">ยังไม่มีเป้าหมายการเงิน</p>
                     </div>
                   ) : (
                     fullGoals.map(g => (
-                      <GoalRowCard
-                        key={g.id}
-                        goal={g}
-                        onDelete={handleGoalDelete}
-                        onUpdate={handleGoalUpdate}
-                      />
+                      <GoalRowCard key={g.id} goal={g} onDelete={handleGoalDelete} onUpdate={handleGoalUpdate} />
                     ))
                   )}
                 </div>
@@ -1117,13 +1036,125 @@ export default function LineagePage() {
 
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-              คลิกหรือลากบน Timeline เพื่อดูข้อมูลแต่ละวัย
+            <div className="flex items-center justify-center h-full text-slate-400 text-sm p-8 text-center">
+              คลิก Timeline เพื่อดูข้อมูลแต่ละวัย
             </div>
           )}
         </div>
-      </div>
 
+        {/* Right: Dual-Lane Timeline */}
+        <div ref={timelineRef} className="flex-1 overflow-y-auto bg-slate-50 relative">
+
+          {/* Sticky legend */}
+          <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-sm border-b border-slate-200">
+            <div className="grid grid-cols-[1fr_80px_1fr] gap-2 px-4 py-2.5">
+              <span className="text-[10px] font-bold text-red-400 text-right">⚠️ ความเสี่ยง / วิกฤต</span>
+              <span className="text-[10px] font-bold text-slate-400 text-center">อายุ</span>
+              <span className="text-[10px] font-bold text-emerald-500">✅ ดี / เป้าหมาย</span>
+            </div>
+          </div>
+
+          {/* Center vertical line */}
+          <div className="absolute left-1/2 top-10 bottom-0 w-px bg-slate-200 -translate-x-px pointer-events-none" />
+
+          <div className="relative">
+            {timelineRows.map(row => {
+              const isSelected = row.age === selectedAge;
+              const isCurrent  = row.age === currentAge_;
+              const isRetire   = row.age === retirementAge;
+              const hasEvents  = row.negative.length > 0 || row.positive.length > 0;
+              if (!hasEvents && row.age % 5 !== 0 && !isSelected && !isCurrent && !isRetire) return null;
+              return (
+                <div
+                  key={row.age}
+                  data-age={row.age}
+                  onClick={() => setSelectedAge(row.age)}
+                  className={cn(
+                    "grid grid-cols-[1fr_80px_1fr] gap-2 px-3 py-2 cursor-pointer transition-colors border-b border-slate-100/50",
+                    isSelected ? "bg-violet-50" : "hover:bg-white/70"
+                  )}
+                >
+                  {/* LEFT: negative / risk events */}
+                  <div className="flex flex-col gap-1 items-end min-h-[28px] justify-start">
+                    {row.negative.map(ev => (
+                      <div key={ev.id} className="rounded-lg bg-red-50 border border-red-100 px-2 py-1 text-[10px] text-red-700 text-right max-w-[240px]">
+                        <p className="font-semibold leading-tight">{ev.title}</p>
+                        {ev.description && <p className="opacity-60 leading-tight">{ev.description}</p>}
+                        {!ev.isAuto && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              await fetch(`/api/lineage/events?id=${ev.id}`, { method: "DELETE" });
+                              setManualEvents(prev => prev.filter(me => me.id !== ev.id));
+                            }}
+                            className="mt-0.5 opacity-40 hover:opacity-80 block ml-auto"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* CENTER: dot + age + avatar */}
+                  <div className="flex flex-col items-center gap-0.5 relative z-10 pt-1">
+                    <div className={cn(
+                      "rounded-full border-2 border-white shadow flex items-center justify-center transition-all",
+                      isSelected
+                        ? "w-9 h-9 bg-violet-500 text-lg"
+                        : isRetire
+                        ? "w-5 h-5 bg-purple-500"
+                        : isCurrent
+                        ? "w-5 h-5 bg-amber-400"
+                        : row.negative.length > 0
+                        ? "w-3.5 h-3.5 bg-red-300"
+                        : row.positive.length > 0
+                        ? "w-3.5 h-3.5 bg-emerald-400"
+                        : "w-2.5 h-2.5 bg-slate-300"
+                    )}>
+                      {isSelected && <span className="leading-none">{avatar.emoji}</span>}
+                    </div>
+                    <span className={cn(
+                      "text-[10px] font-bold leading-none",
+                      isSelected ? "text-violet-600" :
+                      isRetire   ? "text-purple-500" :
+                      isCurrent  ? "text-amber-500" :
+                      hasEvents  ? "text-slate-500" :
+                      "text-slate-300"
+                    )}>
+                      {row.age}
+                    </span>
+                    {isRetire && <span className="text-[8px] text-purple-400 font-semibold -mt-0.5">เกษียณ</span>}
+                    {isCurrent && !isSelected && <span className="text-[8px] text-amber-400 font-semibold -mt-0.5">ตอนนี้</span>}
+                  </div>
+
+                  {/* RIGHT: positive / milestone events */}
+                  <div className="flex flex-col gap-1 min-h-[28px] justify-start">
+                    {row.positive.map(ev => (
+                      <div key={ev.id} className="rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-1 text-[10px] text-emerald-700 max-w-[240px]">
+                        <p className="font-semibold leading-tight">{ev.title}</p>
+                        {ev.description && <p className="opacity-60 leading-tight">{ev.description}</p>}
+                        {!ev.isAuto && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              await fetch(`/api/lineage/events?id=${ev.id}`, { method: "DELETE" });
+                              setManualEvents(prev => prev.filter(me => me.id !== ev.id));
+                            }}
+                            className="mt-0.5 opacity-40 hover:opacity-80 block"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

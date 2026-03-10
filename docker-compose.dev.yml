@@ -1,0 +1,14 @@
+# Dev override — hot-reload, no rebuild needed
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/app
+      - /app/node_modules   # keep container node_modules separate from host
+      - /app/.next          # keep build cache inside container
+    environment:
+      NODE_ENV: development
+    command: npm run dev

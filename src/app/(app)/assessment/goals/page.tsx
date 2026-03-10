@@ -1,14 +1,22 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   Target, CheckCircle2, RefreshCw, ChevronLeft, ChevronRight,
-  AlertCircle,
+  AlertCircle, History,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+interface AssessmentSession {
+  id: string;
+  score: number;
+  maxScore: number;
+  result: Record<string, string>;
+  takenAt: string;
+}
 
 // ─── Questions ────────────────────────────────────────────────────────────────
 
@@ -194,6 +202,35 @@ export default function GoalsClarityPage() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [current, setCurrent] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [sessions, setSessions] = useState<AssessmentSession[]>([]);
+
+  const loadSessions = useCallback(async () => {
+    const res = await fetch("/api/assessment/sessions?type=goals");
+    const json = await res.json();
+    setSessions(json.data ?? []);
+  }, []);
+
+  useEffect(() => { loadSessions().catch(() => {}); }, [loadSessions]);
+
+  // Save session to DB exactly once when the user submits
+  useEffect(() => {
+    if (!submitted) return;
+    const totalScore = Object.values(answers).reduce((s, v) => s + v, 0);
+    localStorage.setItem("assessment_goals_done", "1");
+    fetch("/api/assessment/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "goals",
+        score: totalScore,
+        maxScore: MAX_SCORE,
+        result: { label: levelInfo[calcLevel(totalScore)].label },
+      }),
+    })
+      .then(() => loadSessions())
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitted]);
 
   const q = questions[current];
   const answered = Object.keys(answers).length;
@@ -219,13 +256,11 @@ export default function GoalsClarityPage() {
     localStorage.removeItem("assessment_goals_done");
   }
 
-  const totalScore = Object.values(answers).reduce((s, v) => s + v, 0);
-  const level = calcLevel(totalScore);
-  const info = levelInfo[level];
-  const scorePct = Math.round((totalScore / MAX_SCORE) * 100);
-
   if (submitted) {
-    localStorage.setItem("assessment_goals_done", "1");
+    const totalScore = Object.values(answers).reduce((s, v) => s + v, 0);
+    const level = calcLevel(totalScore);
+    const info = levelInfo[level];
+    const scorePct = Math.round((totalScore / MAX_SCORE) * 100);
     return (
       <div className="space-y-6 max-w-2xl">
         <div className="flex items-center gap-3">
@@ -305,12 +340,38 @@ export default function GoalsClarityPage() {
           <Link href="/assessment">
             <Button variant="outline">← กลับหน้าหลัก</Button>
           </Link>
-          <Link href="/goals">
+          <Link href="/my-data?tab=goals">
             <Button className="flex items-center gap-2">
               <Target className="h-4 w-4" />จัดการเป้าหมาย →
             </Button>
           </Link>
         </div>
+
+        {/* History */}
+        {sessions.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+              <History className="h-4 w-4" />ประวัติการทำแบบประเมิน ({sessions.length} ครั้ง)
+            </p>
+            <div className="space-y-1.5">
+              {sessions.map((s, i) => {
+                const lv = levelInfo[calcLevel(s.score)];
+                return (
+                  <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded-lg border bg-muted/30 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground text-xs w-5 text-right">{i + 1}.</span>
+                      <span className={cn("font-medium", lv?.color ?? "text-muted-foreground")}>{s.result.label}</span>
+                      <span className="text-muted-foreground text-xs">{s.score}/{s.maxScore} คะแนน</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(s.takenAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

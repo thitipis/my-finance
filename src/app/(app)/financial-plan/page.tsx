@@ -4,7 +4,7 @@ import {
   BarChart3, Loader2, TrendingUp, TrendingDown, Banknote,
   ShieldCheck, AlertTriangle, CheckCircle2, AlertCircle,
   Wallet, PiggyBank, Scale, Target, Activity,
-  ChevronRight, Flame, GitBranch,
+  ChevronRight, Flame,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -16,6 +16,7 @@ import Link from "next/link";
 
 interface ProfileData {
   annualSalary: number; bonus: number; otherIncome: number;
+  taxRefundAmount: number; dividendIncome: number;
   monthlyExpenses: number; monthlyDebtPayment: number; totalDebt: number;
   debtInterestRate: number;
   emergencyFundAmount: number;
@@ -23,12 +24,6 @@ interface ProfileData {
   ltfAmount: number; providentFundAmount: number;
   lifeInsurancePremium: number; healthInsurancePremium: number;
   annuityInsurancePremium: number; withheldTax: number;
-}
-
-interface PlanData {
-  currentAge: number | null; retirementAge: number | null;
-  monthlyRetirementNeeds: number | null; expectedReturn: number | null;
-  currentSavings: number | null; monthlyInvestable: number | null;
 }
 
 interface RiskData { riskLevel: "conservative" | "moderate" | "aggressive"; }
@@ -59,20 +54,15 @@ function getMarginalRate(income: number): number {
   return 0.35;
 }
 
-function calcFV(pv: number, annualRate: number, years: number, monthlyPmt: number): number {
-  if (years <= 0) return pv;
-  const r = (1 + annualRate) ** (1 / 12) - 1;
-  if (Math.abs(r) < 1e-9) return pv + monthlyPmt * years * 12;
-  const g = (1 + r) ** (years * 12);
-  return pv * g + monthlyPmt * (g - 1) / r;
-}
-
-const PLAN_RETURNS = {
-  conservative: { conservative: 3.5,  recommended: 4.5,  aggressive: 6.0  },
-  moderate:     { conservative: 5.0,  recommended: 7.0,  aggressive: 9.0  },
-  aggressive:   { conservative: 7.0,  recommended: 10.0, aggressive: 12.0 },
-} as const;
-type InvestMode = "conservative" | "recommended" | "aggressive";
+const ASSET_LABEL: Record<string, string> = {
+  thai_stock: "หุ้นไทย",
+  thai_reit:  "REITs ไทย",
+  thai_fund:  "กองทุนไทย",
+  us_etf:     "US ETF",
+  us_stock:   "หุ้น US",
+  gold:       "ทองคำ",
+  crypto:     "Crypto",
+};
 
 // ─── UI Components ────────────────────────────────────────────────────────────
 
@@ -172,32 +162,24 @@ function HealthBadge({ health }: { health: Health }) {
 
 export default function FinancialAnalysisPage() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [plan,    setPlan]    = useState<PlanData | null>(null);
   const [risk,    setRisk]    = useState<RiskData | null>(null);
   const [assets,  setAssets]  = useState<PortfolioAsset[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview"|"cashflow"|"investment"|"retirement">("overview");
-  const [lifeSpan, setLifeSpan] = useState(() => {
-    if (typeof window !== "undefined") {
-      const v = Number(localStorage.getItem("mf_life_expectancy"));
-      if (v >= 70 && v <= 100) return v;
-    }
-    return 85;
-  });
-  const [investMode, setInvestMode] = useState<InvestMode>("recommended");
+  const [activeTab, setActiveTab] = useState<"overview"|"cashflow"|"investment">("overview");
+  // no mode toggle — FA shows current state only
 
 
   useEffect(() => {
     Promise.all([
       fetch("/api/user/financial-profile").then(r => r.json()),
-      fetch("/api/user/financial-plan").then(r => r.json()),
       fetch("/api/user/risk-assessment").then(r => r.json()),
       fetch("/api/user/portfolio-assets").then(r => r.json()),
-    ]).then(([profRes, planRes, riskRes, portRes]) => {
+    ]).then(([profRes, riskRes, portRes]) => {
       if (profRes.data) {
         const d = profRes.data;
         setProfile({
           annualSalary: Number(d.annualSalary ?? 0), bonus: Number(d.bonus ?? 0), otherIncome: Number(d.otherIncome ?? 0),
+          taxRefundAmount: Number(d.taxRefundAmount ?? 0), dividendIncome: Number(d.dividendIncome ?? 0),
           monthlyExpenses: Number(d.monthlyExpenses ?? 0), monthlyDebtPayment: Number(d.monthlyDebtPayment ?? 0),
           totalDebt: Number(d.totalDebt ?? 0), debtInterestRate: Number(d.debtInterestRate ?? 0),
           emergencyFundAmount: Number(d.emergencyFundAmount ?? 0),
@@ -208,16 +190,6 @@ export default function FinancialAnalysisPage() {
           healthInsurancePremium: Number(d.healthInsurancePremium ?? 0),
           annuityInsurancePremium: Number(d.annuityInsurancePremium ?? 0),
           withheldTax: Number(d.withheldTax ?? 0),
-        });
-      }
-      if (planRes.data) {
-        const d = planRes.data;
-        setPlan({
-          currentAge: d.currentAge ?? null, retirementAge: d.retirementAge ?? null,
-          monthlyRetirementNeeds: Number(d.monthlyRetirementNeeds ?? 0) || null,
-          expectedReturn: Number(d.expectedReturn ?? 7),
-          currentSavings: Number(d.currentSavings ?? 0),
-          monthlyInvestable: Number(d.monthlyInvestable ?? 0) || null,
         });
       }
       if (riskRes.data) setRisk(riskRes.data);
@@ -250,7 +222,7 @@ export default function FinancialAnalysisPage() {
   );
 
   // ── Derived numbers ──────────────────────────────────────────────────────
-  const annualIncome  = profile.annualSalary + profile.bonus + profile.otherIncome;
+  const annualIncome  = profile.annualSalary + profile.bonus + profile.otherIncome + profile.dividendIncome + profile.taxRefundAmount;
   const monthlyIncome = annualIncome / 12;
   const monthlyFree   = monthlyIncome - profile.monthlyExpenses - profile.monthlyDebtPayment;
   const marginalRate  = getMarginalRate(annualIncome);
@@ -286,46 +258,24 @@ export default function FinancialAnalysisPage() {
     ? persAssets.reduce((s, a) => s + a.currentValue * (a.expectedReturn ?? 0), 0) / persTotal
     : null;
   const effectiveReturn = portfolioReturn && portfolioReturn > 0 ? portfolioReturn : null;
-  const planRiskLevel = (risk?.riskLevel ?? "moderate") as keyof typeof PLAN_RETURNS;
-  const selectedReturn = PLAN_RETURNS[planRiskLevel][investMode];
 
   const investRatio = annualIncome > 0 ? totalTaxInvested / annualIncome : 0;
   const netWorth    = grandTotal + profile.emergencyFundAmount - profile.totalDebt;
-
-  // Retirement projection
-  const yearsToRetire = plan?.currentAge && plan?.retirementAge
-    ? Math.max(0, plan.retirementAge - plan.currentAge) : null;
-  let retPct: number | null = null;
-  let retProjected: number | null = null;
-  let retCorpus: number | null = null;
-  if (plan?.currentAge && plan?.retirementAge && plan?.monthlyRetirementNeeds && yearsToRetire && yearsToRetire > 0) {
-    const ret  = selectedReturn / 100;
-    const pv   = plan.currentSavings ?? 0;
-    const pmt  = plan.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
-    const proj = calcFV(pv, ret, yearsToRetire, pmt);
-    const realNeeds = plan.monthlyRetirementNeeds * Math.pow(1.03, yearsToRetire);
-    const corpus    = (realNeeds * 12) / 0.04;
-    retPct       = corpus > 0 ? Math.min(100, Math.round((proj / corpus) * 100)) : 100;
-    retProjected = proj;
-    retCorpus    = corpus;
-  }
 
   // Health signals
   const efHealth:  Health = efMonths === null ? "neutral" : efMonths >= 6 ? "good" : efMonths >= 3 ? "warn" : "bad";
   const dtiHealth: Health = dti === 0 ? "good" : dti < 0.30 ? "good" : dti < 0.50 ? "warn" : "bad";
   const savHealth: Health = savingsRate >= 0.20 ? "good" : savingsRate >= 0.10 ? "warn" : "bad";
-  const retHealth: Health = retPct === null ? "neutral" : retPct >= 80 ? "good" : retPct >= 50 ? "warn" : "bad";
   const taxHealth: Health = totalTaxRoom < 5_000 ? "good" : totalTaxRoom < 50_000 ? "warn" : "bad";
   const riskLabel = risk?.riskLevel === "conservative" ? "อนุรักษ์นิยม"
     : risk?.riskLevel === "moderate" ? "สมดุล" : risk?.riskLevel === "aggressive" ? "เชิงรุก" : null;
 
   // Composite score (0–100)
   let score = 0;
-  if (efHealth  === "good") score += 25; else if (efHealth  === "warn") score += 12;
-  if (dtiHealth === "good") score += 20; else if (dtiHealth === "warn") score += 10;
-  if (savHealth === "good") score += 20; else if (savHealth === "warn") score += 10;
+  if (efHealth  === "good") score += 30; else if (efHealth  === "warn") score += 15;
+  if (dtiHealth === "good") score += 25; else if (dtiHealth === "warn") score += 12;
+  if (savHealth === "good") score += 25; else if (savHealth === "warn") score += 12;
   if (investRatio >= 0.15)  score += 15; else if (investRatio > 0) score += 7;
-  if (retHealth  === "good") score += 15; else if (retHealth === "warn") score += 7;
   if (risk) score += 5;
   const scoreHealth: Health = score >= 75 ? "good" : score >= 45 ? "warn" : "bad";
   const scoreLabel = score >= 75 ? "สุขภาพการเงินดี" : score >= 45 ? "พอใช้ได้" : "ต้องปรับปรุง";
@@ -345,56 +295,75 @@ export default function FinancialAnalysisPage() {
         </Link>
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Card className={cn("col-span-2 sm:col-span-1 border", HEALTH_BG[scoreHealth])}>
-          <CardContent className="pt-4 pb-4 flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Activity className={cn("h-3.5 w-3.5", HEALTH_COLOR[scoreHealth])} />คะแนนสุขภาพ
+      {/* Health Summary Banner */}
+      <div className="rounded-2xl border overflow-hidden bg-card">
+        <div className="flex flex-col sm:flex-row sm:divide-x">
+          {/* Score ring */}
+          <div className={cn("flex items-center gap-4 px-6 py-5 shrink-0 border-b sm:border-b-0", HEALTH_BG[scoreHealth])}>
+            <div className="relative w-[72px] h-[72px] shrink-0">
+              <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" strokeWidth="2.8"
+                  className="text-black/10" />
+                <circle cx="18" cy="18" r="15.9" fill="none" strokeWidth="2.8"
+                  className={HEALTH_COLOR[scoreHealth]}
+                  stroke="currentColor"
+                  strokeDasharray={`${score} 100`}
+                  strokeLinecap="round" />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className={cn("text-xl font-black tabular-nums leading-none", HEALTH_COLOR[scoreHealth])}>{score}</span>
+                <span className="text-[9px] text-muted-foreground leading-none mt-0.5">/100</span>
+              </div>
             </div>
-            <div className="flex items-end gap-2">
-              <p className={cn("text-3xl font-black tabular-nums leading-none", HEALTH_COLOR[scoreHealth])}>{score}</p>
-              <p className="text-muted-foreground text-xs mb-0.5">/100</p>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">คะแนนสุขภาพ</p>
+              <p className={cn("text-base font-bold mt-0.5 leading-tight", HEALTH_COLOR[scoreHealth])}>{scoreLabel}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">Financial Analysis</p>
             </div>
-            <p className={cn("text-xs font-semibold", HEALTH_COLOR[scoreHealth])}>{scoreLabel}</p>
-            <Progress value={score} className="h-1.5 mt-1" />
-          </CardContent>
-        </Card>
-        <KpiCard icon={Wallet} label="รายได้สุทธิ/เดือน" value={thb(monthlyIncome)} sub={`ปีละ ${thbM(annualIncome)}`} health="neutral" />
-        <KpiCard icon={PiggyBank} label="เงินออมได้/เดือน" value={thb(Math.max(0, monthlyFree))} sub={`${(savingsRate * 100).toFixed(0)}% ของรายได้`} health={savHealth} link={{ href: "/my-data?tab=income", label: "แก้ไข" }} />
-        <KpiCard icon={ShieldCheck} label="กองทุนฉุกเฉิน" value={efMonths !== null ? `${efMonths.toFixed(1)} เดือน` : "—"} sub={`${thb(profile.emergencyFundAmount)} / เป้า ${thb(efTarget)}`} health={efHealth} link={{ href: "/my-data?tab=debts", label: "อัปเดต" }} />
-        <KpiCard icon={Scale} label="DTI (หนี้/รายได้)" value={`${(dti * 100).toFixed(0)}%`} sub="เป้า < 30%" health={dtiHealth} />
-        <KpiCard icon={Target} label="สินทรัพย์สุทธิ" value={thbM(Math.abs(netWorth))} sub={netWorth >= 0 ? `+${thbM(netWorth)} สินทรัพย์ > หนี้` : "ติดลบ — หนี้เกินสินทรัพย์"} health={netWorth >= 0 ? "good" : "bad"} />
-      </div>
+          </div>
 
-      {/* Investment Plan + Life Span Controls */}
-      <div className="flex flex-wrap items-start gap-4 p-4 bg-muted/30 rounded-xl border">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-3.5 w-3.5 text-primary shrink-0" />
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">แผน · {riskLabel ?? "สมดุล"}</span>
-          <div className="flex gap-1.5">
-            {(["conservative", "recommended", "aggressive"] as InvestMode[]).map(m => (
-              <button
-                key={m}
-                onClick={() => setInvestMode(m)}
-                className={cn(
-                  "px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors leading-none",
-                  investMode === m ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border text-muted-foreground hover:border-primary/50"
+          {/* Metrics strip */}
+          <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-y lg:divide-y-0">
+            {([
+              {
+                icon: Wallet, label: "รายได้สุทธิ", value: thb(monthlyIncome),
+                sub: `ปีละ ${thbM(annualIncome)}`, health: "neutral" as Health,
+              },
+              {
+                icon: PiggyBank, label: "เงินออม/เดือน", value: thb(Math.max(0, monthlyFree)),
+                sub: `${(savingsRate * 100).toFixed(0)}% ของรายได้`, health: savHealth,
+                href: "/my-data?tab=income",
+              },
+              {
+                icon: ShieldCheck, label: "กองทุนฉุกเฉิน",
+                value: efMonths !== null ? `${efMonths.toFixed(1)} เดือน` : "—",
+                sub: `${thb(profile.emergencyFundAmount)} / ${thb(efTarget)}`, health: efHealth,
+                href: "/my-data?tab=debts",
+              },
+              {
+                icon: Scale, label: "DTI หนี้/รายได้",
+                value: `${(dti * 100).toFixed(0)}%`, sub: "เป้า < 30%", health: dtiHealth,
+              },
+              {
+                icon: Target, label: "สินทรัพย์สุทธิ",
+                value: thbM(Math.abs(netWorth)),
+                sub: netWorth >= 0 ? "สินทรัพย์ > หนี้" : "หนี้ > สินทรัพย์",
+                health: (netWorth >= 0 ? "good" : "bad") as Health,
+              },
+            ] as const).map((m) => (
+              <div key={m.label} className="px-4 py-4 flex flex-col gap-0.5 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <m.icon className={cn("h-3 w-3 shrink-0", HEALTH_COLOR[m.health])} />
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground truncate">{m.label}</p>
+                </div>
+                <p className={cn("text-lg font-black tabular-nums leading-tight", HEALTH_COLOR[m.health])}>{m.value}</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">{m.sub}</p>
+                {"href" in m && (
+                  <Link href={(m as { href: string }).href} className="text-[10px] text-primary hover:underline mt-0.5">แก้ไข →</Link>
                 )}
-              >
-                {m === "conservative" ? "อนุรักษ์" : m === "recommended" ? "แนะนำ" : "เชิงรุก"}
-                <span className="text-[10px] font-normal opacity-70 ml-1">{PLAN_RETURNS[planRiskLevel][m]}%</span>
-              </button>
+              </div>
             ))}
           </div>
-        </div>
-        <div className="h-6 w-px bg-border hidden sm:block" />
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-3.5 w-3.5 text-violet-500 shrink-0" />
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">อายุขัย</span>
-          <input type="range" min={70} max={100} value={lifeSpan} onChange={e => { const v = Number(e.target.value); setLifeSpan(v); localStorage.setItem("mf_life_expectancy", String(v)); }} className="w-24 accent-violet-500" />
-          <span className="text-base font-black text-violet-600 tabular-nums w-6">{lifeSpan}</span>
-          <span className="text-xs text-muted-foreground">ปี</span>
         </div>
       </div>
 
@@ -405,7 +374,6 @@ export default function FinancialAnalysisPage() {
             { key: "overview",   label: "ภาพรวม",       icon: Activity },
             { key: "cashflow",   label: "กระแสเงินสด",  icon: Banknote },
             { key: "investment", label: "การลงทุน",      icon: TrendingUp },
-            { key: "retirement", label: "เกษียณ",        icon: Target },
           ] as const).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -426,6 +394,159 @@ export default function FinancialAnalysisPage() {
 
       {/* Tab content */}
       <div className="space-y-5">
+
+      {/* ── Tab: ภาพรวม ── */}
+      {activeTab === "overview" && (
+        <div className="grid lg:grid-cols-2 gap-5">
+          {/* Health Score Breakdown */}
+          <Card>
+            <CardHeader className="pb-1 pt-4">
+              <CardTitle className="text-sm">
+                <SectionHeader icon={Activity} title="คะแนนสุขภาพการเงิน" color="text-primary" />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4 space-y-4">
+              {[
+                { label: "กองทุนฉุกเฉิน (Emergency Fund)", health: efHealth, score: efHealth === "good" ? 30 : efHealth === "warn" ? 15 : 0, max: 30,
+                  detail: efMonths !== null ? `${efMonths.toFixed(1)} เดือน / เป้า 6 เดือน` : "ยังไม่มีข้อมูล" },
+                { label: "ภาระหนี้ (Debt to Income)", health: dtiHealth, score: dtiHealth === "good" ? 25 : dtiHealth === "warn" ? 12 : 0, max: 25,
+                  detail: `DTI ${(dti * 100).toFixed(0)}% / เป้า < 30%` },
+                { label: "การออม (Savings Rate)", health: savHealth, score: savHealth === "good" ? 25 : savHealth === "warn" ? 12 : 0, max: 25,
+                  detail: `ออมได้ ${(savingsRate * 100).toFixed(0)}% / เป้า 20%` },
+                { label: "การลงทุนกองทุนภาษี", health: investRatio >= 0.15 ? "good" as Health : investRatio > 0 ? "warn" as Health : "bad" as Health,
+                  score: investRatio >= 0.15 ? 15 : investRatio > 0 ? 7 : 0, max: 15,
+                  detail: `${(investRatio * 100).toFixed(0)}% ของรายได้ / เป้า 15%` },
+                { label: "ประเมินความเสี่ยง", health: risk ? "good" as Health : "neutral" as Health,
+                  score: risk ? 5 : 0, max: 5,
+                  detail: risk ? `ระดับ: ${riskLabel ?? "—"}` : "ยังไม่ได้ประเมิน" },
+              ].map(item => (
+                <div key={item.label} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span className={cn("font-semibold tabular-nums", HEALTH_COLOR[item.health])}>
+                      {item.score}/{item.max}
+                    </span>
+                  </div>
+                  <Progress value={item.max > 0 ? (item.score / item.max) * 100 : 0}
+                    className={cn("h-1.5", item.health === "good" ? "[&>div]:bg-emerald-500" : item.health === "warn" ? "[&>div]:bg-amber-400" : "")} />
+                  <p className="text-[10px] text-muted-foreground">{item.detail}</p>
+                </div>
+              ))}
+              <div className="pt-2 border-t flex items-center justify-between">
+                <span className="text-xs text-muted-foreground font-medium">คะแนนรวม</span>
+                <span className={cn("text-lg font-black tabular-nums", HEALTH_COLOR[scoreHealth])}>{score}/100 — {scoreLabel}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Key Actions */}
+          <Card>
+            <CardHeader className="pb-1 pt-4">
+              <CardTitle className="text-sm">
+                <SectionHeader icon={CheckCircle2} title="สิ่งที่ควรทำต่อไป" color="text-violet-600" />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4">
+              <div className="space-y-3">
+                {efHealth !== "good" && (
+                  <div className={cn("flex gap-3 rounded-lg border p-3", efHealth === "bad" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50")}>
+                    <ShieldCheck className={cn("h-4 w-4 mt-0.5 shrink-0", efHealth === "bad" ? "text-red-500" : "text-amber-500")} />
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold">สร้างกองทุนฉุกเฉิน</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        เป้าหมาย {thb(efTarget)} ({profile.monthlyExpenses > 0 ? "6 เดือน × " + thb(profile.monthlyExpenses) : "6 เดือนค่าใช้จ่าย"})
+                        {efMonths !== null && <> · มีแล้ว {thb(profile.emergencyFundAmount)}</>}
+                      </p>
+                      <Link href="/my-data?tab=debts" className="text-[11px] text-primary hover:underline">อัปเดตข้อมูล →</Link>
+                    </div>
+                  </div>
+                )}
+                {dtiHealth !== "good" && (
+                  <div className={cn("flex gap-3 rounded-lg border p-3", dtiHealth === "bad" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50")}>
+                    <Scale className={cn("h-4 w-4 mt-0.5 shrink-0", dtiHealth === "bad" ? "text-red-500" : "text-amber-500")} />
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold">ลดภาระหนี้</p>
+                      <p className="text-[11px] text-muted-foreground">DTI ปัจจุบัน {(dti * 100).toFixed(0)}% — เป้าหมายต้องต่ำกว่า 30%</p>
+                    </div>
+                  </div>
+                )}
+                {savHealth !== "good" && (
+                  <div className={cn("flex gap-3 rounded-lg border p-3", savHealth === "bad" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50")}>
+                    <PiggyBank className={cn("h-4 w-4 mt-0.5 shrink-0", savHealth === "bad" ? "text-red-500" : "text-amber-500")} />
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold">เพิ่มอัตราการออม</p>
+                      <p className="text-[11px] text-muted-foreground">ออมได้ {(savingsRate * 100).toFixed(0)}% — เป้าหมาย 20% ของรายได้ ({thb(monthlyIncome * 0.20)}/เดือน)</p>
+                    </div>
+                  </div>
+                )}
+                {investRatio < 0.15 && (
+                  <div className={cn("flex gap-3 rounded-lg border p-3", investRatio === 0 ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50")}>
+                    <TrendingUp className={cn("h-4 w-4 mt-0.5 shrink-0", investRatio === 0 ? "text-red-500" : "text-amber-500")} />
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold">เพิ่มการลงทุนกองทุนภาษี</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        ลงทุนอยู่ {thb(totalTaxInvested)}/ปี — เป้าหมาย 15% ของรายได้ ({thb(annualIncome * 0.15)}/ปี)
+                        {totalTaxRoom > 0 && marginalRate > 0 && <> · ประหยัดภาษีได้ {thb(taxSaving)}</>}
+                      </p>
+                      <Link href="/tax" className="text-[11px] text-primary hover:underline">คำนวณภาษี →</Link>
+                    </div>
+                  </div>
+                )}
+                {!risk && (
+                  <div className="flex gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                    <Activity className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold">ประเมินความเสี่ยงการลงทุน</p>
+                      <p className="text-[11px] text-muted-foreground">ยังไม่ได้ทำแบบประเมิน Risk Profile</p>
+                      <Link href="/tools/risk" className="text-[11px] text-primary hover:underline">ทำแบบประเมิน →</Link>
+                    </div>
+                  </div>
+                )}
+                {score >= 75 && (
+                  <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                    <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-500" />
+                    <div>
+                      <p className="text-xs font-semibold text-emerald-700">สุขภาพการเงินอยู่ในเกณฑ์ดี</p>
+                      <p className="text-[11px] text-muted-foreground">คงรักษาวินัยทางการเงินต่อไป และพิจารณาเพิ่มการลงทุนระยะยาว</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Net Worth snapshot */}
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-1 pt-4">
+              <CardTitle className="text-sm">
+                <SectionHeader icon={Wallet} title="ภาพรวมฐานะการเงิน" color="text-blue-600" />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="text-center p-3 rounded-lg bg-muted/40">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">รายได้/เดือน</p>
+                  <p className="text-lg font-black tabular-nums mt-1">{thb(monthlyIncome)}</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/40">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">เงินออมได้/เดือน</p>
+                  <p className={cn("text-lg font-black tabular-nums mt-1", HEALTH_COLOR[savHealth])}>{thb(Math.max(0, monthlyFree))}</p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/40">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">พอร์ตรวม</p>
+                  <p className="text-lg font-black tabular-nums mt-1 text-emerald-600">{grandTotal > 0 ? thbM(grandTotal) : "—"}</p>
+                </div>
+                <div className={cn("text-center p-3 rounded-lg", netWorth >= 0 ? "bg-emerald-50" : "bg-red-50")}>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">สินทรัพย์สุทธิ</p>
+                  <p className={cn("text-lg font-black tabular-nums mt-1", netWorth >= 0 ? "text-emerald-600" : "text-red-500")}>
+                    {netWorth >= 0 ? "+" : ""}{thbM(netWorth)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* ── Tab: กระแสเงินสด ── */}
       {activeTab === "cashflow" && (
@@ -470,6 +591,33 @@ export default function FinancialAnalysisPage() {
                     <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
                   </tr>
                 )}
+                {profile.dividendIncome > 0 && (
+                  <tr>
+                    <td className="py-2 text-xs text-muted-foreground">เงินปันผล จากหุ้น (เฉลี่ย/เดือน)</td>
+                    <td className="py-2 text-xs font-medium text-right tabular-nums">{thb(profile.dividendIncome / 12)}</td>
+                    <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">{pct(profile.dividendIncome, annualIncome)}</td>
+                    <td className="py-2 text-right"><HealthBadge health="neutral" /></td>
+                  </tr>
+                )}
+                <tr>
+                  <td className="py-2 text-xs text-muted-foreground">
+                    เงินคืนภาษี/ปี
+                    {profile.taxRefundAmount === 0 && (
+                      <span className="ml-1 text-[10px] text-primary/70 hover:underline cursor-pointer">
+                        · <a href="/my-data">กรอกใน My Data</a>
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 text-xs font-medium text-right tabular-nums">
+                    {profile.taxRefundAmount > 0 ? thb(profile.taxRefundAmount) : <span className="text-muted-foreground/50">—</span>}
+                  </td>
+                  <td className="py-2 text-xs text-right text-muted-foreground hidden sm:table-cell">
+                    {profile.taxRefundAmount > 0 ? pct(profile.taxRefundAmount, annualIncome) : "—"}
+                  </td>
+                  <td className="py-2 text-right">
+                    {profile.taxRefundAmount > 0 && <HealthBadge health="good" />}
+                  </td>
+                </tr>
                 <tr className="bg-muted/20">
                   <td className="py-2 text-xs font-semibold">รายได้รวม</td>
                   <td className="py-2 text-xs font-bold text-right tabular-nums">{thb(monthlyIncome)}</td>
@@ -638,6 +786,7 @@ export default function FinancialAnalysisPage() {
 
       {/* ── Tab: การลงทุน ── */}
       {activeTab === "investment" && (
+        <div className="space-y-5">
         <div className="grid lg:grid-cols-2 gap-5">
         {/* ── Portfolio / Investment ── */}
         <Card>
@@ -817,504 +966,7 @@ export default function FinancialAnalysisPage() {
           </CardContent>
         </Card>
       </div>
-      )}
-
-      {/* ── Tab: เกษียณ ── */}
-      {activeTab === "retirement" && (
-        <div className="space-y-5">
-      {/* ── Retirement Projection ── */}
-      <Card>
-        <CardHeader className="pb-1 pt-4">
-          <CardTitle className="text-sm flex items-center justify-between">
-            <SectionHeader icon={Target} title="การฉายภาพเกษียณ (Retirement Projection)" color="text-indigo-600" />
-            <Link href="/lineage" className="text-xs text-primary hover:underline -mt-3">แก้ไขข้อมูล</Link>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pb-4">
-          {plan?.currentAge ? (
-            <div className="space-y-4">
-              {/* Main retirement table */}
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 text-xs font-semibold text-muted-foreground w-[40%]">รายการ</th>
-                      <th className="text-right py-2 text-xs font-semibold text-muted-foreground">ข้อมูล</th>
-                      <th className="text-right py-2 text-xs font-semibold text-muted-foreground">หมายเหตุ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    <tr>
-                      <td className="py-2.5 text-xs text-muted-foreground">อายุปัจจุบัน</td>
-                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">{plan.currentAge} ปี</td>
-                      <td className="py-2.5 text-xs text-muted-foreground text-right"></td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 text-xs text-muted-foreground">อายุเกษียณเป้า</td>
-                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">{plan.retirementAge} ปี</td>
-                      <td className="py-2.5 text-xs text-muted-foreground text-right">
-                        {yearsToRetire !== null ? `อีก ${yearsToRetire} ปี` : ""}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 text-xs text-muted-foreground">ค่าใช้จ่ายหลังเกษียณ</td>
-                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">
-                        {plan.monthlyRetirementNeeds ? thb(plan.monthlyRetirementNeeds) + "/เดือน" : "—"}
-                      </td>
-                      <td className="py-2.5 text-xs text-muted-foreground text-right">
-                        {yearsToRetire && plan.monthlyRetirementNeeds
-                          ? `ปรับเงินเฟ้อ 3%: ${thb(Math.round(plan.monthlyRetirementNeeds * Math.pow(1.03, yearsToRetire)))}/เดือน`
-                          : ""}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 text-xs text-muted-foreground">ผลตอบแทนที่คาดหวัง</td>
-                      <td className="py-2.5 text-xs font-medium text-right tabular-nums">
-                        {selectedReturn}%/ปี
-                      </td>
-                      <td className="py-2.5 text-xs text-muted-foreground text-right">
-                        แผน{investMode === "recommended" ? "แนะนำ" : investMode === "conservative" ? "อนุรักษ์" : "เชิงรุก"}
-                      </td>
-                    </tr>
-                    {retCorpus !== null && (
-                      <tr>
-                        <td className="py-2.5 text-xs text-muted-foreground">เงินที่ต้องการ (4% Rule)</td>
-                        <td className="py-2.5 text-xs font-semibold text-right tabular-nums text-indigo-600">{thbM(retCorpus)}</td>
-                        <td className="py-2.5 text-xs text-muted-foreground text-right">corpus เป้าหมาย</td>
-                      </tr>
-                    )}
-                    {retProjected !== null && (
-                      <tr>
-                        <td className="py-2.5 text-xs text-muted-foreground">คาดการณ์ ณ วันนี้</td>
-                        <td className={cn("py-2.5 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[retHealth])}>
-                          {thbM(retProjected)}
-                        </td>
-                        <td className="py-2.5 text-right">
-                          <span className={cn("text-xs font-bold", HEALTH_COLOR[retHealth])}>{retPct}% ของเป้า</span>
-                        </td>
-                      </tr>
-                    )}
-                    {retCorpus !== null && retProjected !== null && (
-                      <tr className="bg-muted/30">
-                        <td className="py-2.5 text-xs font-semibold">
-                          {retProjected >= retCorpus ? "เกินเป้าหมาย" : "ยังขาดอีก"}
-                        </td>
-                        <td className={cn("py-2.5 text-sm font-bold text-right tabular-nums",
-                          retProjected >= retCorpus ? "text-emerald-600" : "text-red-600")}>
-                          {thbM(Math.abs(retCorpus - retProjected))}
-                        </td>
-                        <td className="py-2.5 text-xs text-muted-foreground text-right">
-                          {retProjected >= retCorpus ? "✓ อยู่ในเส้นทาง" : "ต้องเพิ่มการออม"}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              {/* Progress bar */}
-              {retPct !== null && (
-                <div>
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <span className="text-muted-foreground font-medium">ความคืบหน้าสู่เป้าหมายเกษียณ</span>
-                    <span className={cn("font-bold", HEALTH_COLOR[retHealth])}>{retPct}%</span>
-                  </div>
-                  <div className="h-3 bg-muted rounded-full overflow-hidden">
-                    <div className={cn("h-full rounded-full transition-all",
-                      retHealth === "good" ? "bg-emerald-500" : retHealth === "warn" ? "bg-amber-400" : "bg-red-400"
-                    )} style={{ width: `${retPct}%` }} />
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-2">
-                    {retHealth === "good"
-                      ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /><span className="text-xs text-emerald-700 font-medium">อยู่ในเส้นทาง ✓</span></>
-                      : retHealth === "warn"
-                      ? <><AlertCircle className="h-3.5 w-3.5 text-amber-500" /><span className="text-xs text-amber-700 font-medium">ต้องเพิ่มการออมเพื่อถึงเป้า</span></>
-                      : <><AlertTriangle className="h-3.5 w-3.5 text-red-500" /><span className="text-xs text-red-600 font-medium">ขาดมาก — ควรทบทวนแผนด่วน</span></>}
-                  </div>
-                </div>
-              )}
-              {/* FIRE Scenarios */}
-              {yearsToRetire !== null && yearsToRetire > 0 && plan.monthlyRetirementNeeds && (
-                <div className="pt-3 border-t">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                    <Flame className="h-3.5 w-3.5 text-orange-500" />
-                    FIRE Scenarios — 3 สถานการณ์ผลตอบแทน
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-1.5 text-xs font-semibold text-muted-foreground">สถานการณ์</th>
-                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">ผลตอบแทน</th>
-                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground hidden sm:table-cell">เงินที่ต้องการ</th>
-                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">คาดการณ์</th>
-                          <th className="text-right py-1.5 text-xs font-semibold text-muted-foreground">สถานะ</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {([
-                          { label: "ระมัดระวัง", rate: PLAN_RETURNS[planRiskLevel].conservative, emoji: "🛡️" },
-                          { label: "ฐาน",        rate: selectedReturn, emoji: "⚖️" },
-                          { label: "เชิงรุก",    rate: PLAN_RETURNS[planRiskLevel].aggressive, emoji: "🚀" },
-                        ]).map(({ label, rate, emoji }) => {
-                          const pv2   = plan.currentSavings ?? 0;
-                          const pmt2  = plan.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
-                          const proj2 = calcFV(pv2, rate / 100, yearsToRetire!, pmt2);
-                          const rn2   = plan.monthlyRetirementNeeds! * Math.pow(1.03, yearsToRetire!);
-                          const c2    = (rn2 * 12) / 0.04;
-                          const p2    = c2 > 0 ? Math.min(100, Math.round((proj2 / c2) * 100)) : 100;
-                          const h2: Health = p2 >= 80 ? "good" : p2 >= 50 ? "warn" : "bad";
-                          return (
-                            <tr key={label}>
-                              <td className="py-2 text-xs font-medium">{emoji} {label}</td>
-                              <td className="py-2 text-xs text-right text-muted-foreground tabular-nums">{rate}%/ปี</td>
-                              <td className="py-2 text-xs text-right tabular-nums hidden sm:table-cell">{thbM(c2)}</td>
-                              <td className={cn("py-2 text-xs text-right font-semibold tabular-nums", HEALTH_COLOR[h2])}>{thbM(proj2)}</td>
-                              <td className="py-2 text-right">
-                                <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold", HEALTH_BG[h2], HEALTH_COLOR[h2])}>
-                                  {p2}%
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 py-2">
-              <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
-              <div>
-                <p className="text-sm font-medium">ยังไม่มีข้อมูลแผนเกษียณ</p>
-                <Link href="/lineage" className="text-xs text-primary hover:underline">กรอกข้อมูลเกษียณ →</Link>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       </div>
-      )}
-
-      {/* ── Tab: ภาพรวม ── */}
-      {activeTab === "overview" && (
-        <div className="space-y-5">
-      {/* ── Summary Health Scorecard ── */}
-      <Card className="bg-muted/30">
-        <CardHeader className="pb-1 pt-4">
-          <CardTitle className="text-sm">
-            <SectionHeader icon={Activity} title="สรุป Financial Health Scorecard" />
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pb-4">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 text-xs font-semibold text-muted-foreground">ตัวชี้วัด</th>
-                  <th className="text-right py-2 text-xs font-semibold text-muted-foreground">ค่าปัจจุบัน</th>
-                  <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden sm:table-cell">เป้าหมาย</th>
-                  <th className="text-right py-2 text-xs font-semibold text-muted-foreground">สถานะ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {([
-                  { label: "กองทุนฉุกเฉิน",        current: efMonths !== null ? `${efMonths.toFixed(1)} เดือน` : "ไม่มีข้อมูล", target: "≥ 6 เดือน", health: efHealth },
-                  { label: "อัตราการออม",           current: `${(savingsRate * 100).toFixed(0)}%`, target: "≥ 20%", health: savHealth },
-                  { label: "ภาระหนี้ (DTI)",        current: `${(dti * 100).toFixed(0)}%`, target: "< 30%", health: dtiHealth },
-                  { label: "ลงทุน/รายได้ต่อปี",    current: `${(investRatio * 100).toFixed(0)}%`, target: "≥ 15%", health: (investRatio >= 0.15 ? "good" : investRatio > 0 ? "warn" : "bad") as Health },
-                  { label: "ใช้สิทธิ์ลดหย่อนภาษี", current: totalTaxRoom < 5_000 ? "ใช้ครบแล้ว ✓" : `เหลือ ${thb(totalTaxRoom)}`, target: "ใช้สูงสุด", health: taxHealth },
-                  { label: "ความพร้อมเกษียณ",       current: retPct !== null ? `${retPct}%` : "ยังไม่กำหนด", target: "≥ 80%", health: retHealth },
-                ] as { label: string; current: string; target: string; health: Health }[]).map(row => (
-                  <tr key={row.label} className="hover:bg-muted/30 transition-colors">
-                    <td className="py-2.5 text-xs font-medium">{row.label}</td>
-                    <td className={cn("py-2.5 text-xs font-semibold text-right tabular-nums", HEALTH_COLOR[row.health])}>{row.current}</td>
-                    <td className="py-2.5 text-xs text-muted-foreground text-right hidden sm:table-cell">{row.target}</td>
-                    <td className="py-2.5 text-right"><HealthBadge health={row.health} /></td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t bg-muted/20">
-                  <td colSpan={2} className="py-3 text-xs">
-                    <div className="flex items-center gap-2">
-                      <Activity className={cn("h-4 w-4", HEALTH_COLOR[scoreHealth])} />
-                      <span className="font-semibold">คะแนนรวม:</span>
-                      <span className={cn("font-black text-base leading-none", HEALTH_COLOR[scoreHealth])}>{score}</span>
-                      <span className="text-muted-foreground">/100 — {scoreLabel}</span>
-                    </div>
-                  </td>
-                  <td colSpan={2} className="py-3 text-right">
-                    <Progress value={score} className="h-2.5 w-32 ml-auto" />
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Budget Allocation 50/30/20 ── */}
-      <Card>
-        <CardHeader className="pb-1 pt-4">
-          <CardTitle className="text-sm">
-            <SectionHeader icon={PiggyBank} title="การจัดสรรงบประมาณ vs หลัก 50/30/20" color="text-teal-600" />
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pb-4">
-          {(() => {
-            const savingsAmt = Math.max(0, monthlyFree);
-            const needsPct  = monthlyIncome > 0 ? (profile.monthlyExpenses / monthlyIncome) * 100 : 0;
-            const debtPct   = monthlyIncome > 0 ? (profile.monthlyDebtPayment / monthlyIncome) * 100 : 0;
-            const savPct    = monthlyIncome > 0 ? (savingsAmt / monthlyIncome) * 100 : 0;
-            const rows = [
-              { label: "รายจ่ายประจำ (Needs)", actual: needsPct, ideal: 50, value: profile.monthlyExpenses,    color: "bg-blue-500" },
-              { label: "ชำระหนี้ (Debt)",       actual: debtPct,  ideal: 0,  value: profile.monthlyDebtPayment, color: "bg-orange-400" },
-              { label: "ออม & ลงทุน (Savings)", actual: savPct,   ideal: 20, value: savingsAmt,                 color: "bg-emerald-500" },
-            ];
-            return (
-              <div className="space-y-3">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-2 text-xs font-semibold text-muted-foreground w-[35%]">หมวด</th>
-                        <th className="text-right py-2 text-xs font-semibold text-muted-foreground">สัดส่วนจริง</th>
-                        <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden sm:table-cell">เป้าหมาย</th>
-                        <th className="text-right py-2 text-xs font-semibold text-muted-foreground">จำนวนเงิน</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {rows.map(r => (
-                        <tr key={r.label}>
-                          <td className="py-2.5 text-xs font-medium">{r.label}</td>
-                          <td className={cn("py-2.5 text-xs font-bold text-right tabular-nums",
-                            r.label.includes("ออม")
-                              ? (r.actual >= 20 ? "text-emerald-600" : r.actual >= 10 ? "text-amber-600" : "text-red-600")
-                              : "text-foreground"
-                          )}>{r.actual.toFixed(0)}%</td>
-                          <td className="py-2.5 text-xs text-muted-foreground text-right hidden sm:table-cell">{r.ideal > 0 ? `${r.ideal}%` : "—"}</td>
-                          <td className="py-2.5 text-xs text-right tabular-nums text-muted-foreground">{thb(r.value)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {/* Stacked bar */}
-                <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">การกระจายรายได้</p>
-                  <div className="h-4 rounded-full overflow-hidden flex bg-muted">
-                    {rows.map(r =>
-                      r.actual > 0 ? (
-                        <div key={r.label}
-                          className={cn("h-full transition-all", r.color)}
-                          style={{ width: `${Math.min(100, r.actual)}%` }}
-                          title={`${r.label}: ${r.actual.toFixed(0)}%`}
-                        />
-                      ) : null
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    {rows.map(r => (
-                      <span key={r.label} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <span className={cn("inline-block w-2 h-2 rounded-sm", r.color)} />
-                        {r.label} ({r.actual.toFixed(0)}%)
-                      </span>
-                    ))}
-                  </div>
-                  {savPct < 20 && (
-                    <p className="text-[11px] text-amber-600 font-medium pt-0.5">
-                      💡 เพิ่มการออมอีก {(20 - savPct).toFixed(0)}% ({thb(monthlyIncome * (20 - savPct) / 100)}/เดือน) เพื่อถึงเป้า 20%
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-        </CardContent>
-      </Card>
-
-      {/* ── Wealth Growth Timeline ── */}
-      {(grandTotal > 0 || (plan?.currentSavings ?? 0) > 0) && (
-        <Card>
-          <CardHeader className="pb-1 pt-4">
-            <CardTitle className="text-sm">
-              <SectionHeader icon={TrendingUp} title="การเติบโตของความมั่งคั่ง (Wealth Timeline)" color="text-emerald-600" />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pb-4">
-            {(() => {
-              const startPV = plan?.currentSavings ?? grandTotal;
-              const monthly = plan?.monthlyInvestable ?? Math.max(0, monthlyFree * 0.7);
-              const rate    = selectedReturn / 100;
-              const allMilestones = [1, 3, 5, 10, 15, 20, 25, 30];
-              const milestones = allMilestones.filter(y =>
-                yearsToRetire === null || y <= yearsToRetire + 1
-              ).slice(0, 7);
-              return (
-                <div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 text-xs font-semibold text-muted-foreground">ช่วงเวลา</th>
-                          {plan?.currentAge && <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden sm:table-cell">อายุ</th>}
-                          <th className="text-right py-2 text-xs font-semibold text-muted-foreground">คาดการณ์สินทรัพย์</th>
-                          <th className="text-right py-2 text-xs font-semibold text-muted-foreground hidden md:table-cell">เติบโต</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        <tr className="bg-muted/20">
-                          <td className="py-2.5 text-xs font-semibold text-muted-foreground">ปัจจุบัน</td>
-                          {plan?.currentAge && <td className="py-2.5 text-xs text-right text-muted-foreground hidden sm:table-cell">{plan.currentAge} ปี</td>}
-                          <td className="py-2.5 text-xs font-bold text-right tabular-nums">{thbM(startPV)}</td>
-                          <td className="py-2.5 text-xs text-right text-muted-foreground hidden md:table-cell">—</td>
-                        </tr>
-                        {milestones.map(y => {
-                          const proj = calcFV(startPV, rate, y, monthly);
-                          const growPct = startPV > 0 ? ((proj / startPV - 1) * 100).toFixed(0) : null;
-                          const isRetYear = yearsToRetire !== null && y === yearsToRetire;
-                          return (
-                            <tr key={y} className={cn(isRetYear ? "bg-indigo-50/50" : "")}>
-                              <td className={cn("py-2.5 text-xs", isRetYear ? "font-semibold" : "")}>
-                                {isRetYear ? "🏁 " : ""}อีก {y} ปี{isRetYear ? " (เกษียณ)" : ""}
-                              </td>
-                              {plan?.currentAge && (
-                                <td className="py-2.5 text-xs text-right text-muted-foreground hidden sm:table-cell">
-                                  {plan.currentAge + y} ปี
-                                </td>
-                              )}
-                              <td className={cn("py-2.5 text-xs text-right font-semibold tabular-nums",
-                                isRetYear ? "text-indigo-600" : retCorpus && proj >= retCorpus ? "text-emerald-600" : "text-foreground"
-                              )}>
-                                {thbM(proj)}
-                              </td>
-                              <td className="py-2.5 text-xs text-right text-emerald-600 hidden md:table-cell">
-                                {growPct ? `+${growPct}%` : "—"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-3">
-                    * คำนวณจากสินทรัพย์ {thbM(startPV)} + ออม {thb(monthly)}/เดือน ที่ผลตอบแทน {selectedReturn}%/ปี (ทบต้น)
-                  </p>
-                </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
-      )}
-      </div>
-      )}
-
-      {/* ── Life Span Wealth Projection ── */}
-      {plan?.currentAge && plan?.retirementAge && (
-        <Card>
-          <CardHeader className="pb-1 pt-4">
-            <CardTitle className="text-sm">
-              <SectionHeader icon={GitBranch} title="การฉายภาพชีวิตทางการเงิน (Life Span)" color="text-violet-600" />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pb-4">
-            {(() => {
-              const curAge  = plan.currentAge!;
-              const retAge  = plan.retirementAge!;
-              const startNW = (plan.currentSavings ?? grandTotal) - profile.totalDebt;
-              const retRate = selectedReturn / 100;
-              const inflRate = 0.03;
-              const annSal  = profile.annualSalary + profile.bonus + profile.otherIncome;
-              const annExp  = (profile.monthlyExpenses + profile.monthlyDebtPayment) * 12;
-              const retNeedsMonthly = plan.monthlyRetirementNeeds ?? profile.monthlyExpenses;
-
-              let nw = startNW;
-              const rows: {age: number; nw: number; isRetired: boolean; isBroke: boolean}[] = [];
-              for (let age = curAge; age <= lifeSpan; age++) {
-                const yi = age - curAge;
-                const isRetired = age >= retAge;
-                if (!isRetired) {
-                  const inc = annSal * Math.pow(1.03, yi);
-                  const exp = annExp * Math.pow(1 + inflRate, yi);
-                  nw = (nw + Math.max(0, inc - exp)) * (1 + retRate);
-                } else {
-                  nw = nw * 1.04 - retNeedsMonthly * 12 * Math.pow(1 + inflRate, age - retAge);
-                }
-                rows.push({ age, nw: Math.max(0, nw), isRetired, isBroke: nw <= 0 && isRetired });
-              }
-
-              const brokeAt = rows.find(r => r.isBroke);
-              const peakNW  = Math.max(...rows.map(r => r.nw), 1);
-              const keyAges = new Set<number>([curAge, retAge, lifeSpan]);
-              for (let a = Math.ceil((curAge + 1) / 5) * 5; a < lifeSpan; a += 5) keyAges.add(a);
-              const display = rows.filter(r => keyAges.has(r.age));
-
-              return (
-                <div className="space-y-3">
-                  {brokeAt ? (
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
-                      <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
-                      <p className="text-xs text-red-700 font-medium">
-                        คาดว่าเงินจะหมดที่อายุ <span className="font-black">{brokeAt.age} ปี</span> — พิจารณาเพิ่มการออมหรือปรับแผนเกษียณ
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                      <p className="text-xs text-emerald-700 font-medium">
-                        แผนปัจจุบันรองรับได้ถึงอายุ <span className="font-black">{lifeSpan} ปี</span> — เงินเพียงพอตลอดช่วงชีวิต
-                      </p>
-                    </div>
-                  )}
-                  <div className="space-y-1.5">
-                    {display.map(r => {
-                      const barPct   = (r.nw / peakNW) * 100;
-                      const isCur    = r.age === curAge;
-                      const isRet    = r.age === retAge;
-                      const isEnd    = r.age === lifeSpan;
-                      const barColor = r.isBroke ? "bg-red-300"
-                        : r.isRetired ? "bg-violet-400"
-                        : "bg-emerald-400";
-                      return (
-                        <div key={r.age} className="flex items-center gap-2">
-                          <span className={cn(
-                            "text-[11px] w-12 text-right tabular-nums shrink-0 font-medium",
-                            isCur ? "text-amber-600 font-bold" : isRet ? "text-violet-600 font-bold" : "text-muted-foreground"
-                          )}>{r.age} ปี</span>
-                          <div className="flex-1 h-5 bg-muted rounded relative overflow-hidden">
-                            <div className={cn("h-full rounded transition-all", barColor)} style={{ width: `${barPct}%` }} />
-                            <span className="absolute inset-0 flex items-center px-2 text-[10px] font-semibold text-slate-700">
-                              {thbM(r.nw)}
-                            </span>
-                          </div>
-                          <span className="text-[9px] font-bold shrink-0 w-14 text-left">
-                            {isCur ? <span className="text-amber-600">● ตอนนี้</span>
-                             : isRet ? <span className="text-violet-600">🏁 เกษียณ</span>
-                             : isEnd ? <span className="text-slate-400">อายุขัย</span>
-                             : null}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 pt-1">
-                    {[["bg-emerald-400","ก่อนเกษียณ"],["bg-violet-400","หลังเกษียณ"],["bg-red-300","เงินหมด"]].map(([c,l]) => (
-                      <span key={l} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <span className={cn("inline-block w-2 h-2 rounded-sm", c)} />{l}
-                      </span>
-                    ))}
-                    <span className="text-[10px] text-muted-foreground ml-auto">
-                      * ถอนเกษียณ {thb(retNeedsMonthly)}/เดือน + เงินเฟ้อ {(inflRate * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
       )}
 
       </div>

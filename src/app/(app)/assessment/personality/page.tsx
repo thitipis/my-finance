@@ -1,14 +1,22 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   Brain, CheckCircle2, RefreshCw, ChevronLeft, ChevronRight,
-  ShoppingBag, PiggyBank, TrendingUp, Scale,
+  ShoppingBag, PiggyBank, TrendingUp, Scale, History,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+interface AssessmentSession {
+  id: string;
+  score: number;
+  maxScore: number;
+  result: Record<string, string>;
+  takenAt: string;
+}
 
 // ─── Questions ────────────────────────────────────────────────────────────────
 
@@ -221,17 +229,37 @@ function getDominantType(answers: Record<string, PersonalityType>): PersonalityT
 export default function PersonalityAssessmentPage() {
   const [answers, setAnswers] = useState<Record<string, PersonalityType>>({});
   const [result, setResult] = useState<PersonalityType | null>(null);
+  const [sessions, setSessions] = useState<AssessmentSession[]>([]);
+
+  const loadSessions = useCallback(async () => {
+    const res = await fetch("/api/assessment/sessions?type=personality");
+    const json = await res.json();
+    setSessions(json.data ?? []);
+  }, []);
+
+  useEffect(() => { loadSessions().catch(() => {}); }, [loadSessions]);
 
   const totalQ = questions.length;
   const answered = Object.keys(answers).length;
   const progress = (answered / totalQ) * 100;
   const allDone = answered === totalQ;
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!allDone) return;
     const dominant = getDominantType(answers);
     setResult(dominant);
     localStorage.setItem("assessment_personality_done", "1");
+    await fetch("/api/assessment/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "personality",
+        score: 0,
+        maxScore: 0,
+        result: { type: dominant, label: personalityInfo[dominant].labelTh },
+      }),
+    }).catch(() => {});
+    await loadSessions().catch(() => {});
   }
 
   const info = result ? personalityInfo[result] : null;
@@ -344,6 +372,33 @@ export default function PersonalityAssessmentPage() {
           </Card>
         );
       })()}
+
+      {/* History */}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+          <History className="h-4 w-4" />ประวัติการทำแบบประเมิน ({sessions.length} ครั้ง)
+        </p>
+        {sessions.length === 0 ? (
+          <p className="text-xs text-muted-foreground px-3 py-2 rounded-lg border bg-muted/20">ยังไม่มีประวัติ — ส่งแบบประเมินเพื่อเริ่มติดตามพัฒนาการ</p>
+        ) : (
+          <div className="space-y-1.5">
+            {sessions.map((s, i) => {
+              const pi = personalityInfo[s.result.type as PersonalityType];
+              return (
+                <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded-lg border bg-muted/30 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground text-xs w-5 text-right">{i + 1}.</span>
+                    <span className={cn("font-medium", pi?.color)}>{s.result.label}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(s.takenAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Questions grouped by category */}
       {!result && (

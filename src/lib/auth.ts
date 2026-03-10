@@ -49,6 +49,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const isLoggedIn = !!session?.user;
       const isAuthPage = nextUrl.pathname.startsWith("/login") || nextUrl.pathname.startsWith("/register");
       const isPublicApi = nextUrl.pathname.startsWith("/api/auth") ||
+        nextUrl.pathname.startsWith("/api/admin") ||
         nextUrl.pathname.startsWith("/api/tax/years") ||
         nextUrl.pathname.startsWith("/api/tax/config");
 

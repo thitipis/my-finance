@@ -1,14 +1,22 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   ClipboardList, CheckCircle2, RefreshCw, Loader2, ChevronLeft, ChevronRight,
-  MapPin, TrendingUp, Shield,
+  MapPin, TrendingUp, Shield, History,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+interface AssessmentSession {
+  id: string;
+  score: number;
+  maxScore: number;
+  result: Record<string, string>;
+  takenAt: string;
+}
 
 // ─── Questions ────────────────────────────────────────────────────────────────
 
@@ -65,6 +73,13 @@ export default function RiskAssessmentPage() {
   const [result, setResult]       = useState<{ score: number; level: "conservative" | "moderate" | "aggressive" } | null>(null);
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
+  const [sessions, setSessions]   = useState<AssessmentSession[]>([]);
+
+  const loadSessions = useCallback(async () => {
+    const res = await fetch("/api/assessment/sessions?type=risk");
+    const json = await res.json();
+    setSessions(json.data ?? []);
+  }, []);
 
   useEffect(() => {
     fetch("/api/user/risk-assessment").then(r => r.json()).then(res => {
@@ -76,7 +91,8 @@ export default function RiskAssessmentPage() {
       }
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, []);
+    loadSessions().catch(() => {});
+  }, [loadSessions]);
 
   const part1Qs = riskQuestions.filter(q => q.part === 1);
   const part2Qs = riskQuestions.filter(q => q.part === 2);
@@ -100,8 +116,14 @@ export default function RiskAssessmentPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answers: answerArr, score: totalScore, riskLevel: level }),
       });
+      await fetch("/api/assessment/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "risk", score: totalScore, maxScore: MAX_SCORE, result: { level, label: riskInfo[level].label } }),
+      });
       setResult({ score: totalScore, level });
       localStorage.setItem("assessment_risk_done", "1");
+      await loadSessions();
     } finally {
       setSaving(false);
     }
@@ -184,6 +206,35 @@ export default function RiskAssessmentPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* History */}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
+          <History className="h-4 w-4" />ประวัติการทำแบบประเมิน ({sessions.length} ครั้ง)
+        </p>
+        {sessions.length === 0 ? (
+          <p className="text-xs text-muted-foreground px-3 py-2 rounded-lg border bg-muted/20">ยังไม่มีประวัติ — กด บันทึกผลประเมิน เพื่อเริ่มติดตามพัฒนาการ</p>
+        ) : (
+          <div className="space-y-1.5">
+            {sessions.map((s, i) => {
+              const lvl = (s.result.level ?? "") as keyof typeof riskInfo;
+              const info2 = riskInfo[lvl];
+              return (
+                <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded-lg border bg-muted/30 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground text-xs w-5 text-right">{i + 1}.</span>
+                    <span className={cn("font-medium", info2?.color)}>{s.result.label ?? lvl}</span>
+                    <span className="text-muted-foreground text-xs">{s.score}/{s.maxScore} คะแนน</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(s.takenAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Questions */}
       <div className="space-y-3">

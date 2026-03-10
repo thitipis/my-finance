@@ -48,6 +48,7 @@ export async function GET(_req: NextRequest) {
           monthlyRetirementNeeds: plan.monthlyRetirementNeeds?.toString() ?? "0",
           currentSavings: plan.currentSavings?.toString() ?? "0",
           inflationRate: plan.inflationRate?.toString() ?? "3",
+          expectedReturn: plan.expectedReturn != null ? Number(plan.expectedReturn) : null,
         }
       : null,
     goals: goals.map((g: typeof goals[0]) => ({

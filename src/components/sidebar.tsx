@@ -20,13 +20,16 @@ import {
   X,
   Brain,
   BookOpen,
-  Target,
   GitBranch,
+  PieChart,
+  FlaskConical,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const financeToolPaths = ["/tax", "/insurance", "/tools"];
-const myDataPaths = ["/my-data", "/assessment"];
+const myDataPaths = ["/my-data"];
+const assessmentPaths = ["/assessment"];
 
 function NavContent({ onNavClick }: { onNavClick?: () => void }) {
   const pathname = usePathname();
@@ -39,6 +42,8 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
   const [toolsOpen, setToolsOpen] = useState(isFinanceTool);
   const isMyData = myDataPaths.some((p) => pathname.startsWith(p));
   const [myDataOpen, setMyDataOpen] = useState(isMyData);
+  const isAssessment = assessmentPaths.some((p) => pathname.startsWith(p));
+  const [assessmentOpen, setAssessmentOpen] = useState(isAssessment);
 
   return (
     <>
@@ -70,15 +75,36 @@ function NavContent({ onNavClick }: { onNavClick?: () => void }) {
         {myDataOpen && (
           <div className="ml-4 flex flex-col gap-1 border-l pl-3">
             <NavItem href="/my-data"                label="ข้อมูลส่วนตัว"     icon={Database} active={pathname === "/my-data"}                         onClick={onNavClick} />
-            <NavItem href="/my-data/goals"          label="เป้าหมาย"          icon={Target}   active={pathname.startsWith("/my-data/goals")}           onClick={onNavClick} />
-            <NavItem href="/assessment/risk"        label="ประเมินความเสี่ยง" icon={Shield}   active={pathname.startsWith("/assessment/risk")}         onClick={onNavClick} />
-            <NavItem href="/assessment/personality" label="บุคลิกภาพ"          icon={Brain}    active={pathname.startsWith("/assessment/personality")}  onClick={onNavClick} />
-            <NavItem href="/assessment/knowledge"   label="ความรู้การเงิน"     icon={BookOpen} active={pathname.startsWith("/assessment/knowledge")}    onClick={onNavClick} />
+          </div>
+        )}
+
+        {/* แบบประเมิน (collapsible) */}
+        <button
+          onClick={() => setAssessmentOpen((o) => !o)}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium w-full transition-colors",
+            isAssessment
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <ClipboardList className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">แบบประเมิน</span>
+          {assessmentOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        </button>
+
+        {assessmentOpen && (
+          <div className="ml-4 flex flex-col gap-1 border-l pl-3">
+            <NavItem href="/assessment/risk"        label="ความเสี่ยง" icon={Shield}        active={pathname.startsWith("/assessment/risk")}         onClick={onNavClick} />
+            <NavItem href="/assessment/personality" label="บุคลิกภาพ"   icon={Brain}         active={pathname.startsWith("/assessment/personality")}  onClick={onNavClick} />
+            <NavItem href="/assessment/knowledge"   label="ความรู้การเงิน" icon={BookOpen}      active={pathname.startsWith("/assessment/knowledge")}    onClick={onNavClick} />
           </div>
         )}
 
         <NavItem href="/financial-plan" label="Financial Analysis" icon={BarChart3} active={pathname.startsWith("/financial-plan")} onClick={onNavClick} />
         <NavItem href="/lineage" label="เส้นทางชีวิต" icon={GitBranch} active={pathname.startsWith("/lineage")} onClick={onNavClick} />
+        <NavItem href="/investment-plan" label="Investment Plan" icon={PieChart} active={pathname.startsWith("/investment-plan")} onClick={onNavClick} />
+        <NavItem href="/sandbox" label="Sandbox" icon={FlaskConical} active={pathname.startsWith("/sandbox")} onClick={onNavClick} />
 
         {/* Finance Tools (collapsible) */}
         <button

@@ -4,16 +4,17 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const CreateSchema = z.object({
-  assetType:     z.string().min(1).max(40).optional(),
-  ticker:        z.string().min(1).max(40).optional(),
-  name:          z.string().min(1).max(120),
-  group:         z.enum(["thai", "international", "other", "tax"]),
-  emoji:         z.string().min(1).max(8).default("💰"),
-  currentValue:  z.coerce.number().min(0).default(0),
-  units:         z.coerce.number().min(0).optional().nullable(),
-  avgCostPerUnit:z.coerce.number().min(0).optional().nullable(),
-  isBuiltIn:     z.boolean().default(false),
-  sortOrder:     z.coerce.number().int().default(0),
+  assetType:        z.string().min(1).max(40).optional(),
+  ticker:           z.string().min(1).max(40).optional(),
+  name:             z.string().min(1).max(120),
+  group:            z.enum(["thai", "international", "other", "tax"]),
+  emoji:            z.string().min(1).max(8).default("💰"),
+  currentValue:     z.coerce.number().min(0).default(0),
+  annualInvestment: z.coerce.number().min(0).optional().nullable(),
+  units:            z.coerce.number().min(0).optional().nullable(),
+  avgCostPerUnit:   z.coerce.number().min(0).optional().nullable(),
+  isBuiltIn:        z.boolean().default(false),
+  sortOrder:        z.coerce.number().int().default(0),
 });
 
 export async function GET() {

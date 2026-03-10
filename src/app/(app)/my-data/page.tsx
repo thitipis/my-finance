@@ -11,7 +11,9 @@ import {
   Save, Loader2, CheckCircle2, Wallet, Building2,
   MapPin, Coins, BarChart3, Globe, Layers, Bitcoin,
   ChevronDown, ChevronUp, ChevronLeft, Landmark, Plus, Trash2, X, LayoutGrid, Search, Pencil, Sparkles,
+  PiggyBank, Target, Copy, Bot,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,6 +28,8 @@ interface FinancialProfile {
   otherIncome: number;
   spouseIncome: number;
   withheldTax: number;
+  taxRefundAmount: number;
+  dividendIncome: number;
   socialSecurity: number;
   providentFundRate: number;
   providentFundAmount: number;
@@ -50,6 +54,23 @@ interface FinancialProfile {
   debtInterestRate: number;
   emergencyFundAmount: number;
   monthlyExpenses: number;
+  cashOnHand: number;
+  savingsDeposit: number;
+  fixedDeposit: number;
+  monthlySavingsGoal: number;
+  // Monthly budget breakdown
+  budgetHousing: number;
+  budgetFood: number;
+  budgetTransport: number;
+  budgetUtilities: number;
+  budgetHealthcare: number;
+  budgetEntertainment: number;
+  budgetEducation: number;
+  budgetPersonalCare: number;
+  budgetOther: number;
+  // Monthly investment targets
+  monthlyInvestTax: number;
+  monthlyInvestPersonal: number;
 }
 
 // ─── Insurance coverage state (saved to InsuranceData, separate from premium) ─
@@ -73,23 +94,30 @@ const defaultInsurance: InsuranceState = {
 const defaultProfile: FinancialProfile = {
   filingStatus: "single", numChildren: 0, numParents: 0, numDisabledDependents: 0,
   annualSalary: 0, bonus: 0, otherIncome: 0, spouseIncome: 0, withheldTax: 0,
+  taxRefundAmount: 0, dividendIncome: 0,
   socialSecurity: 0, providentFundRate: 0, providentFundAmount: 0,
   lifeInsurancePremium: 0, healthInsurancePremium: 0, parentHealthInsurancePremium: 0,
   annuityInsurancePremium: 0, spouseLifeInsurancePremium: 0,
   ltfAmount: 0, rmfAmount: 0, ssfAmount: 0, thaiEsgAmount: 0,
   goldAmount: 0, cryptoAmount: 0, etfAmount: 0, thaiStockAmount: 0, foreignStockAmount: 0, otherInvestAmount: 0,
   totalDebt: 0, monthlyDebtPayment: 0, debtInterestRate: 0, emergencyFundAmount: 0, monthlyExpenses: 0,
+  cashOnHand: 0, savingsDeposit: 0, fixedDeposit: 0, monthlySavingsGoal: 0,
+  budgetHousing: 0, budgetFood: 0, budgetTransport: 0, budgetUtilities: 0,
+  budgetHealthcare: 0, budgetEntertainment: 0, budgetEducation: 0, budgetPersonalCare: 0, budgetOther: 0,
+  monthlyInvestTax: 0, monthlyInvestPersonal: 0,
 };
 
 // ─── Tab Types ───────────────────────────────────────────────────────────────
 
-type TabKey = "income" | "insurance" | "investment" | "debts";
+type TabKey = "income" | "insurance" | "investment" | "debts" | "savings" | "goals";
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType; color: string }[] = [
   { key: "income",     label: "รายได้ & ครอบครัว",  icon: Banknote,    color: "text-blue-500" },
   { key: "insurance",  label: "ประกัน",              icon: ShieldCheck, color: "text-emerald-500" },
   { key: "investment", label: "การลงทุน",            icon: TrendingUp,  color: "text-purple-500" },
-  { key: "debts",      label: "หนี้สิน & เงินสำรอง", icon: Wallet,      color: "text-amber-500" },
+  { key: "debts",      label: "หนี้สิน",             icon: Wallet,      color: "text-amber-500" },
+  { key: "savings",    label: "เงินออม",              icon: PiggyBank,   color: "text-teal-500" },
+  { key: "goals",      label: "เป้าหมาย",            icon: Target,      color: "text-rose-500" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -171,7 +199,9 @@ function IncomeTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Fina
       <SectionCard title="รายได้ประจำปี" icon={Banknote} iconColor="text-blue-500">
         <NumField label="เงินเดือนรวมทั้งปี" value={p.annualSalary} onChange={v => upd("annualSalary", v)} hint="ก่อนหักภาษี" />
         <NumField label="โบนัส" value={p.bonus} onChange={v => upd("bonus", v)} />
-        <NumField label="รายได้อื่น ๆ" value={p.otherIncome} onChange={v => upd("otherIncome", v)} hint="ฟรีแลนซ์ ดอกเบี้ย เงินปันผล" />
+        <NumField label="รายได้อื่น ๆ" value={p.otherIncome} onChange={v => upd("otherIncome", v)} hint="ฟรีแลนซ์ ดอกเบี้ย" />
+        <NumField label="เงินปันผล จากหุ้น/ปี" value={p.dividendIncome} onChange={v => upd("dividendIncome", v)} hint="ปันผลรายปีจากหุ้น/กองทุน" />
+        <NumField label="เงินคืนภาษี/ปี" value={p.taxRefundAmount} onChange={v => upd("taxRefundAmount", v)} hint="เงินที่ได้คืนจากสรรพากร" />
         <NumField label="รายได้คู่สมรส (ต่อปี)" value={p.spouseIncome} onChange={v => upd("spouseIncome", v)} />
         <NumField label="ภาษีหัก ณ ที่จ่าย" value={p.withheldTax} onChange={v => upd("withheldTax", v)} hint="จากสลิปเงินเดือนทั้งปี" />
         <NumField label="ค่าใช้จ่าย/เดือน" value={p.monthlyExpenses} onChange={v => upd("monthlyExpenses", v)} hint="ใช้คำนวณเงินสำรองและแผนการเงิน" />
@@ -347,6 +377,7 @@ type PortfolioAsset = {
   emoji: string; currentValue: number; isBuiltIn: boolean; sortOrder: number;
   ticker?: string | null; units?: number | null; avgCostPerUnit?: number | null;
   assetType?: string | null; expectedReturn?: number | null;
+  annualInvestment?: number | null;
 };
 
 type AssetTypeDef = {
@@ -446,10 +477,31 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
       }, 0) / taxTotal
     : 0;
 
+  // Budget tracking
+  const taxBudgetAnnual = p.monthlyInvestTax;
+  // Effective annual amount per fund: child assets sum OR manual p[fund.key]
+  const getFundEffective = (fund: typeof TAX_FUNDS[0]) => {
+    const children = assets.filter(a => a.assetType === fund.code);
+    return children.length > 0
+      ? children.reduce((s, a) => s + (a.annualInvestment ?? 0), 0)
+      : (p[fund.key] as number);
+  };
+  const taxAnnualUsed = TAX_FUNDS.reduce((s, f) => s + getFundEffective(f), 0);
+  const taxAnnualRemaining = Math.max(0, taxBudgetAnnual - taxAnnualUsed);
+  // Per-fund budget remaining = total budget minus all OTHER funds
+  const getFundBudgetRemaining = (fund: typeof TAX_FUNDS[0]) => {
+    if (taxBudgetAnnual === 0) return Infinity;
+    return Math.max(0, taxBudgetAnnual - (taxAnnualUsed - getFundEffective(fund)));
+  };
+
+  const persBudgetAnnual = p.monthlyInvestPersonal;
+  const persAnnualUsed = persAssets.reduce((s, a) => s + (a.annualInvestment ?? 0), 0);
+  const persAnnualRemaining = Math.max(0, persBudgetAnnual - persAnnualUsed);
+
   const fetchAssets = () => {
     setAssetsLoading(true);
     fetch("/api/user/portfolio-assets").then(r => r.json()).then(d => {
-      setAssets(d.data?.map((a: PortfolioAsset) => ({ ...a, currentValue: Number(a.currentValue), expectedReturn: a.expectedReturn != null ? Number(a.expectedReturn) : null })) ?? []);
+      setAssets(d.data?.map((a: PortfolioAsset) => ({ ...a, currentValue: Number(a.currentValue), expectedReturn: a.expectedReturn != null ? Number(a.expectedReturn) : null, annualInvestment: a.annualInvestment != null ? Number(a.annualInvestment) : null })) ?? []);
       // Seed typeRates from first asset of each type that has a rate
       const rates: Record<string, number> = {};
       d.data?.forEach((a: PortfolioAsset) => {
@@ -487,6 +539,27 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
         upd(taxFund.key, newTotal as FinancialProfile[typeof taxFund.key]);
       }
     }
+  };
+
+  const handleAnnualChange = (id: string, val: number) => {
+    const asset = assets.find(a => a.id === id);
+    const updated = assets.map(a => a.id === id ? { ...a, annualInvestment: val } : a);
+    setAssets(updated);
+    if (asset?.assetType) {
+      const taxFund = TAX_FUNDS.find(f => f.code === asset.assetType);
+      if (taxFund) {
+        const newTotal = updated.filter(a => a.assetType === taxFund.code).reduce((s, a) => s + (a.annualInvestment ?? 0), 0);
+        upd(taxFund.key, newTotal as FinancialProfile[typeof taxFund.key]);
+      }
+    }
+    const key = `annual_${id}`;
+    if (updateTimers[key]) clearTimeout(updateTimers[key]);
+    updateTimers[key] = setTimeout(() => {
+      fetch(`/api/user/portfolio-assets/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ annualInvestment: val || null }),
+      });
+    }, 600);
   };
 
   const handleRemove = async (id: string, isBuiltIn: boolean) => {
@@ -563,14 +636,14 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         assetType: fund.code, ticker, name: finalName,
-        emoji: "🏦", group: "tax", currentValue: annualAmount,
+        emoji: "🏦", group: "tax", currentValue: 0, annualInvestment: annualAmount,
       }),
     });
     const data = await res.json();
     if (res.ok && data.data) {
-      const newAssets = [...assets, { ...data.data, currentValue: annualAmount }];
+      const newAssets = [...assets, { ...data.data, currentValue: 0, annualInvestment: annualAmount }];
       setAssets(newAssets);
-      const newTotal = newAssets.filter(a => a.assetType === fund.code).reduce((s, a) => s + a.currentValue, 0);
+      const newTotal = newAssets.filter(a => a.assetType === fund.code).reduce((s, a) => s + (a.annualInvestment ?? 0), 0);
       upd(fund.key, newTotal as FinancialProfile[typeof fund.key]);
     }
     setAddSaving(false);
@@ -708,6 +781,60 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
 
   return (
     <div className="space-y-4">
+      {/* Monthly investment targets */}
+      <div className="rounded-xl border bg-card p-4 space-y-3">
+        <p className="text-sm font-semibold">💰 แผนเงินลงทุน/ปี</p>
+        <p className="text-xs text-muted-foreground">กรอกงบลงทุนรายปีก่อน เพื่อติดตามว่าลงทุนไปเท่าไรจากงบที่ตั้งไว้</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <NumField
+              label="ลงทุนลดหย่อนภาษี/ปี"
+              value={p.monthlyInvestTax}
+              onChange={v => upd("monthlyInvestTax", v)}
+              hint="SSF, RMF, ThaiESG ฯลฯ"
+            />
+            {p.monthlyInvestTax > 0 && assetsLoaded && (
+              <div className="space-y-0.5 pt-0.5">
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full bg-violet-500 transition-all"
+                    style={{ width: `${Math.min(100, (taxAnnualUsed / taxBudgetAnnual) * 100)}%` }} />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  ใช้แล้ว <span className="font-semibold text-violet-600">{thb(taxAnnualUsed)}</span>{" "}
+                  · เหลือ <span className={cn("font-semibold", taxAnnualRemaining > 0 ? "text-emerald-600" : "text-rose-500")}>{thb(taxAnnualRemaining)}</span>/ปี
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <NumField
+              label="ลงทุนส่วนตัว/ปี"
+              value={p.monthlyInvestPersonal}
+              onChange={v => upd("monthlyInvestPersonal", v)}
+              hint="หุ้น, ETF, ทอง ฯลฯ"
+            />
+            {p.monthlyInvestPersonal > 0 && assetsLoaded && (
+              <div className="space-y-0.5 pt-0.5">
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full bg-blue-500 transition-all"
+                    style={{ width: `${Math.min(100, (persAnnualUsed / persBudgetAnnual) * 100)}%` }} />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  ใช้แล้ว <span className="font-semibold text-blue-600">{thb(persAnnualUsed)}</span>{" "}
+                  · เหลือ <span className={cn("font-semibold", persAnnualRemaining > 0 ? "text-emerald-600" : "text-rose-500")}>{thb(persAnnualRemaining)}</span>/ปี
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+        {(p.monthlyInvestTax === 0 && p.monthlyInvestPersonal === 0) && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
+            <span className="text-amber-600 text-sm shrink-0">⚠️</span>
+            <p className="text-xs text-amber-800 dark:text-amber-300">กรอกงบลงทุน/ปีด้านบนก่อน เพื่อตรวจสอบว่ากองทุนที่เพิ่มไม่เกินงบที่ตั้งไว้</p>
+          </div>
+        )}
+      </div>
+
       {/* Zone Toggle */}
       <div className="flex p-1 rounded-xl bg-muted/50 border gap-1">
         {(["tax", "personal"] as const).map(v => (
@@ -734,217 +861,266 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
       {/* ── TAX ZONE ── */}
       {view === "tax" && (
         <div className="space-y-3">
-          {deductGrp > 0 && (
-            <div className="rounded-xl bg-violet-50 dark:bg-violet-950/20 border border-violet-200 p-3 flex items-center gap-3">
-              <Landmark className="h-5 w-5 text-violet-600 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-violet-800 dark:text-violet-300">ลดหย่อนได้ {thb(deductGrp)}/ปี</p>
-                <p className="text-xs text-violet-600/70">
-                  {annualIncome > 0 ? `ยังเหลือสิทธิ์ได้อีก ${thb(Math.max(0, Math.min(annualIncome * 0.30, 500_000) - deductGrp))}` : "กรอกรายได้เพื่อดูสิทธิ์คงเหลือ"}
-                </p>
-              </div>
+          {/* Summary row */}
+          <div className="rounded-xl border p-3 flex items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              {deductGrp > 0 ? (
+                <>
+                  <p className="text-sm font-semibold">ลดหย่อนได้ {thb(deductGrp)}/ปี</p>
+                  <p className="text-xs text-muted-foreground">
+                    {annualIncome > 0
+                      ? `เหลือสิทธิ์อีก ${thb(Math.max(0, Math.min(annualIncome * 0.30, 500_000) - deductGrp))}`
+                      : "กรอกรายได้เพื่อดูสิทธิ์คงเหลือ"}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">ยังไม่มีการลงทุนลดหย่อนภาษี</p>
+              )}
             </div>
-          )}
-          {/* AI suggest rates for tax funds */}
-          <div className="flex justify-end">
             <button
               onClick={() => handleAiSuggestRates(TAX_FUNDS.map(f => f.code), "tax")}
               disabled={aiRateLoading}
-              className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:text-violet-700 border border-dashed border-violet-300 rounded-lg px-3 py-1.5 hover:bg-violet-50 transition-colors disabled:opacity-50">
-              {aiRateLoading
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <Sparkles className="h-3.5 w-3.5" />}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed rounded-lg px-3 py-1.5 hover:bg-muted transition-colors disabled:opacity-50 shrink-0">
+              {aiRateLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               AI ประมาณผลตอบแทน
             </button>
           </div>
-          {TAX_FUNDS.map(fund => {
-            const Icon         = fund.icon;
-            const fundChildren = assets.filter(a => a.assetType === fund.code);
-            const childTotal   = fundChildren.reduce((s, a) => s + a.currentValue, 0);
-            const effectiveValue = fundChildren.length > 0 ? childTotal : (p[fund.key] as number);
-            const cap  = annualIncome > 0 ? fund.capFn(annualIncome) : null;
-            const pct  = cap && cap > 0 ? Math.min(100, (effectiveValue / cap) * 100) : null;
-            const room = cap ? Math.max(0, cap - effectiveValue) : null;
-            const isAddingHere = activeAddCode === fund.code;
-            return (
-              <div key={fund.key} className={cn(
-                "rounded-xl border overflow-hidden transition-all",
-                effectiveValue > 0 ? `${fund.bg} ${fund.border}` : "border-dashed border-muted-foreground/30"
-              )}>
-                {/* Header */}
-                <div className="flex items-start gap-3 p-4">
-                  <div className={cn("rounded-full p-2 shrink-0", effectiveValue > 0 ? fund.bg : "bg-muted/50")}>
-                    <Icon className={cn("h-4 w-4", effectiveValue > 0 ? fund.color : "text-muted-foreground")} />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm">{fund.label}</span>
-                      <span className="text-xs text-muted-foreground">{fund.sublabel}</span>
-                      <div className="flex items-center gap-1 ml-auto shrink-0">
-                        <Input
-                          type="number" min={0} max={100} step="0.5"
-                          className="h-7 w-14 text-xs text-center px-1 border-dashed"
-                          placeholder="0"
-                          value={taxFundRates[fund.code] ?? ""}
-                          onChange={e => handleTaxFundRateChange(fund.code, parseFloat(e.target.value) || 0)}
-                          title="ผลตอบแทนคาดหวัง %/ปี"
-                        />
-                        <span className="text-[10px] text-muted-foreground shrink-0">%/ปี</span>
-                      </div>
-                      {effectiveValue > 0 && cap !== null && (
-                        <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full",
-                          pct! >= 100 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
-                          {pct! >= 100 ? "ใช้ครบ ✓" : `${pct!.toFixed(0)}%`}
-                        </span>
-                      )}
-                    </div>
-                    {pct !== null && effectiveValue > 0 && (
-                      <div className="space-y-0.5">
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div className={cn("h-full rounded-full transition-all", pct >= 100 ? "bg-emerald-500" : "bg-violet-400")}
-                            style={{ width: `${Math.min(100, pct)}%` }} />
-                        </div>
-                        {room !== null && room > 0 && <p className="text-xs text-muted-foreground">{fund.hint} · เหลือ {thb(room)}</p>}
-                        {room === 0 && <p className="text-xs text-emerald-600">✓ ใช้สิทธิ์เต็มแล้ว!</p>}
-                      </div>
-                    )}
-                    {effectiveValue === 0 && <p className="text-xs text-muted-foreground">{fund.hint}</p>}
-                  </div>
-                </div>
 
-                {/* Child fund holdings */}
-                {fundChildren.length > 0 && (
-                  <div className="border-t divide-y">
-                    {fundChildren.map(child => (
-                      <div key={child.id} className="px-4 py-2.5 flex items-center gap-2">
-                        {child.ticker && (
-                          <span className="inline-block font-mono text-xs font-bold bg-muted px-1.5 py-0.5 rounded shrink-0">{child.ticker}</span>
-                        )}
-                        <span className="text-sm flex-1 min-w-0 truncate">{child.name}</span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <span className="text-xs text-muted-foreground">฿</span>
-                          <Input type="number" min={0}
-                            className="h-7 w-28 text-sm bg-muted/40 border-0 focus-visible:ring-1 rounded-lg px-2"
-                            value={child.currentValue || ""} placeholder="0"
-                            onChange={e => handleValueChange(child.id, parseFloat(e.target.value) || 0)}
+          {/* Fund list — single clean card, no per-fund colors */}
+          {taxBudgetAnnual === 0 && (
+            <div className="rounded-xl border border-dashed p-6 flex flex-col items-center gap-2 text-center">
+              <span className="text-2xl">🏛️</span>
+              <p className="text-sm font-medium">กรอกงบลงทุนลดหย่อนภาษี/ปีก่อน</p>
+              <p className="text-xs text-muted-foreground">กรอกวงเงินในช่อง "ลงทุนลดหย่อนภาษี/ปี" ด้านบนก่อน<br/>ระบบจะแสดงกองทุนที่สามารถเพิ่มได้</p>
+            </div>
+          )}
+          {taxBudgetAnnual > 0 && <div className="rounded-xl border overflow-hidden divide-y">
+            {TAX_FUNDS.map(fund => {
+              const Icon = fund.icon;
+              const cap = annualIncome > 0 ? fund.capFn(annualIncome) : null;
+              const fundChildren = assets.filter(a => a.assetType === fund.code);
+              const thisFundAmount = getFundEffective(fund);
+              const budgetLeft = getFundBudgetRemaining(fund);
+              // Max total allowed in this fund
+              const fundMax = (() => {
+                const bMax = taxBudgetAnnual > 0 ? budgetLeft : Infinity;
+                const cMax = cap ?? Infinity;
+                const m = Math.min(bMax, cMax);
+                return m === Infinity ? null : m;
+              })();
+              const canAddMore = fundMax !== null ? Math.max(0, fundMax - thisFundAmount) : null;
+              const capLeft = cap !== null ? Math.max(0, cap - thisFundAmount) : null;
+              const isAddingHere = activeAddCode === fund.code;
+              return (
+                <div key={fund.key}>
+                  {/* Fund header row */}
+                  <div className="flex items-start gap-3 px-4 py-3">
+                    <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold">{fund.label}</span>
+                        <span className="text-xs text-muted-foreground">{fund.sublabel}</span>
+                        <div className="flex items-center gap-1 ml-auto shrink-0">
+                          <Input
+                            type="number" min={0} max={30} step="0.5"
+                            className="h-7 w-14 text-xs text-center px-1 border-dashed"
+                            placeholder="0%"
+                            value={taxFundRates[fund.code] ?? ""}
+                            onChange={e => handleTaxFundRateChange(fund.code, parseFloat(e.target.value) || 0)}
+                            title="ผลตอบแทนคาดหวัง %/ปี"
                           />
-                          <span className="text-xs text-muted-foreground">/ปี</span>
+                          <span className="text-[10px] text-muted-foreground">%/ปี</span>
                         </div>
-                        <button onClick={() => handleRemove(child.id, false)}
-                          className="p-1 text-muted-foreground/40 hover:text-destructive transition-colors rounded shrink-0">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
                       </div>
-                    ))}
-                    <div className="px-4 py-1.5 flex justify-end">
-                      <span className="text-xs text-muted-foreground">รวม <span className="font-semibold text-foreground">{thb(childTotal)}/ปี</span></span>
+                      {/* Per-fund status line */}
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                        <span className="text-muted-foreground">{fund.hint}</span>
+                        {thisFundAmount > 0 && (
+                          <span>ลงทุนแล้ว <span className="font-semibold">{thb(thisFundAmount)}</span></span>
+                        )}
+                        {taxBudgetAnnual > 0 && (
+                          budgetLeft > 0
+                            ? <span className="text-emerald-600 font-semibold">เหลืองบ {thb(budgetLeft)}</span>
+                            : <span className="text-rose-500 font-semibold">งบเต็มแล้ว</span>
+                        )}
+                        {capLeft !== null && capLeft === 0 && (
+                          <span className="text-emerald-600 font-semibold">ใช้สิทธิ์ครบ ✓</span>
+                        )}
+                        {cap !== null && thisFundAmount === 0 && (
+                          <span className="text-muted-foreground">สิทธิ์สูงสุด {thb(cap)}</span>
+                        )}
+                        {capLeft !== null && capLeft > 0 && thisFundAmount > 0 && (
+                          <span className="text-muted-foreground">สิทธิ์เหลือ {thb(capLeft)}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                )}
 
-                {/* Manual input when no child holdings */}
-                {fundChildren.length === 0 && (
-                  <div className="border-t px-4 py-3 flex items-center gap-2">
-                    <Label className="text-xs shrink-0 text-muted-foreground whitespace-nowrap">บาท/ปี</Label>
-                    <Input type="number" min={0} className="h-8 text-sm" value={(p[fund.key] as number) || ""} placeholder="0"
-                      onChange={e => upd(fund.key, (parseFloat(e.target.value) || 0) as FinancialProfile[typeof fund.key])}
-                    />
-                  </div>
-                )}
-
-                {/* Inline add-fund form */}
-                <div className="border-t px-4 py-2.5">
-                  {isAddingHere ? (
-                    <div className="space-y-2 pt-0.5">
-                      {addFormStep === "search" && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <p className="text-xs font-semibold flex-1 text-muted-foreground">ค้นหาชื่อกองทุน ({fund.label})</p>
-                            <button onClick={resetAddForm} className="text-muted-foreground hover:text-foreground">
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          <div className="relative">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                            <Input autoFocus placeholder="เช่น KMASTER, SCBDV, K-ESG, ONE-ULT"
-                              value={searchQ}
-                              onChange={e => handleSearchChange(e.target.value, "")}
-                              className="h-9 text-sm pl-8" />
-                            {searchLoading && (
-                              <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                            )}
-                          </div>
-                          {searchResults.length > 0 && (
-                            <div className="border rounded-lg divide-y overflow-hidden max-h-44 overflow-y-auto">
-                              {searchResults.map(r => (
-                                <button key={r.id}
-                                  onClick={() => { setPickedInstrument(r); setAddFormStep("details"); }}
-                                  className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/60 transition-colors">
-                                  <span className="font-mono text-xs font-bold shrink-0">{r.ticker}</span>
-                                  <span className="text-xs text-muted-foreground truncate flex-1">{r.nameTh ?? r.nameEn}</span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                          {!searchLoading && searchQ.trim().length > 0 && searchResults.length === 0 && (
-                            <div className="text-center space-y-1.5 py-1">
-                              <p className="text-xs text-muted-foreground">ไม่พบใน catalog</p>
-                              <button
-                                onClick={() => { setCustomName(searchQ.trim()); setAddFormStep("details"); }}
-                                className="inline-flex items-center gap-1.5 text-xs text-primary border border-dashed border-primary/40 rounded-lg px-3 py-1.5 hover:bg-primary/5 transition-colors">
-                                <Plus className="h-3 w-3" />
-                                ใช้ &ldquo;{searchQ.trim()}&rdquo; เป็นชื่อ
+                  {/* Child fund list */}
+                  {fundChildren.length > 0 && (
+                    <div className="border-t bg-muted/20 divide-y">
+                      {fundChildren.map(child => {
+                        const childAnnual = child.annualInvestment ?? 0;
+                        const capForChild = cap !== null ? Math.max(0, cap - (thisFundAmount - childAnnual)) : null;
+                        const budgetForChild = taxAnnualRemaining + childAnnual;
+                        const maxForChild = capForChild !== null ? Math.min(capForChild, budgetForChild) : budgetForChild;
+                        return (
+                          <div key={child.id} className="px-4 py-2.5">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              {child.ticker && (
+                                <span className="font-mono text-xs font-bold bg-muted px-1.5 py-0.5 rounded shrink-0">{child.ticker}</span>
+                              )}
+                              <span className="text-sm flex-1 min-w-0 truncate">{child.name}</span>
+                              <button onClick={() => handleRemove(child.id, false)}
+                                className="p-1 text-muted-foreground/40 hover:text-destructive transition-colors rounded shrink-0">
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </div>
-                          )}
-                        </div>
-                      )}
-                      {addFormStep === "details" && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => { setAddFormStep("search"); setPickedInstrument(null); }}
-                              className="text-muted-foreground hover:text-foreground shrink-0">
-                              <ChevronLeft className="h-4 w-4" />
-                            </button>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold leading-tight truncate">
-                                {pickedInstrument
-                                  ? `${pickedInstrument.ticker} – ${pickedInstrument.nameTh ?? pickedInstrument.nameEn ?? pickedInstrument.ticker}`
-                                  : customName}
-                              </p>
-                              <p className="text-[11px] text-muted-foreground">{fund.label}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <Label className="text-[11px] text-muted-foreground">ลงทุน/ปี (฿)</Label>
+                                <Input type="number" min={0}
+                                  max={taxBudgetAnnual > 0 ? maxForChild : (capForChild ?? undefined)}
+                                  className="h-8 text-sm"
+                                  value={childAnnual || ""} placeholder="0"
+                                  onChange={e => {
+                                    const v = parseFloat(e.target.value) || 0;
+                                    if (capForChild !== null && v > capForChild) return;
+                                    if (taxBudgetAnnual > 0 && v > budgetForChild) return;
+                                    handleAnnualChange(child.id, v);
+                                  }}
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  {capForChild !== null && `สิทธิ์ ${thb(capForChild)}`}
+                                  {taxBudgetAnnual > 0 && capForChild !== null && " · "}
+                                  {taxBudgetAnnual > 0 && `งบเหลือ ${thb(budgetForChild)}`}
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[11px] text-muted-foreground">NAV ปัจจุบัน (฿)</Label>
+                                <Input type="number" min={0}
+                                  className="h-8 text-sm"
+                                  value={child.currentValue || ""} placeholder="0"
+                                  onChange={e => handleValueChange(child.id, parseFloat(e.target.value) || 0)}
+                                />
+                              </div>
                             </div>
-                            <button onClick={resetAddForm} className="text-muted-foreground hover:text-foreground shrink-0">
-                              <X className="h-3.5 w-3.5" />
-                            </button>
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs font-medium">ลงทุน/ปี (฿)</Label>
-                            <Input type="number" min={0} placeholder="0"
-                              value={addValue} onChange={e => setAddValue(e.target.value)}
-                              className="h-8 text-sm" />
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="flex-1" disabled={addSaving}
-                              onClick={() => handleAddTaxFund(fund)}>
-                              {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
-                              เพิ่ม
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={resetAddForm}>ยกเลิก</Button>
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })}
+                      <div className="px-4 py-1.5 text-xs text-muted-foreground flex justify-between">
+                        <span>รวม {fund.label}: <span className="font-semibold text-foreground">{thb(thisFundAmount)}</span></span>
+                        {fundChildren.reduce((s, a) => s + a.currentValue, 0) > 0 && (
+                          <span>NAV <span className="font-semibold text-foreground">{thb(fundChildren.reduce((s, a) => s + a.currentValue, 0))}</span></span>
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <button onClick={() => handleStartTaxAdd(fund)}
-                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
-                      <Plus className="h-3.5 w-3.5" /> เพิ่มชื่อกองทุน
-                    </button>
                   )}
+
+                  {/* Manual input (no child holdings) */}
+                  {fundChildren.length === 0 && (
+                    <div className="border-t px-4 py-2.5 flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {canAddMore !== null && canAddMore > 0
+                          ? `ลงได้อีก ${thb(canAddMore)}`
+                          : capLeft === 0 ? "ใช้สิทธิ์ครบ"
+                          : "฿/ปี"}
+                      </span>
+                      <Input type="number" min={0}
+                        max={fundMax ?? undefined}
+                        className="h-8 text-sm flex-1"
+                        placeholder="0"
+                        value={(p[fund.key] as number) || ""}
+                        onChange={e => {
+                          const v = parseFloat(e.target.value) || 0;
+                          if (cap !== null && v > cap) return;
+                          if (taxBudgetAnnual > 0 && v > getFundBudgetRemaining(fund)) return;
+                          upd(fund.key, v as FinancialProfile[typeof fund.key]);
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Add fund */}
+                  <div className="border-t px-4 py-2">
+                    {isAddingHere ? (
+                      <div className="space-y-2 py-0.5">
+                        {addFormStep === "search" && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-semibold text-muted-foreground flex-1">ค้นหากองทุน {fund.label}</p>
+                              <button onClick={resetAddForm}><X className="h-3.5 w-3.5 text-muted-foreground" /></button>
+                            </div>
+                            <div className="relative">
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                              <Input autoFocus placeholder="เช่น KMASTER, SCBDV, K-ESG"
+                                value={searchQ}
+                                onChange={e => handleSearchChange(e.target.value, "")}
+                                className="h-8 text-sm pl-8" />
+                              {searchLoading && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                            </div>
+                            {searchResults.length > 0 && (
+                              <div className="border rounded-lg divide-y overflow-hidden max-h-40 overflow-y-auto">
+                                {searchResults.map(r => (
+                                  <button key={r.id}
+                                    onClick={() => { setPickedInstrument(r); setAddFormStep("details"); }}
+                                    className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted/60 transition-colors">
+                                    <span className="font-mono text-xs font-bold shrink-0">{r.ticker}</span>
+                                    <span className="text-xs text-muted-foreground truncate flex-1">{r.nameTh ?? r.nameEn}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {!searchLoading && searchQ.trim().length > 0 && searchResults.length === 0 && (
+                              <div className="text-center py-1">
+                                <button onClick={() => { setCustomName(searchQ.trim()); setAddFormStep("details"); }}
+                                  className="inline-flex items-center gap-1.5 text-xs text-primary border border-dashed border-primary/40 rounded-lg px-3 py-1.5 hover:bg-primary/5">
+                                  <Plus className="h-3 w-3" /> ใช้ &ldquo;{searchQ.trim()}&rdquo;
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {addFormStep === "details" && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => { setAddFormStep("search"); setPickedInstrument(null); }}>
+                                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+                              </button>
+                              <p className="text-sm font-semibold flex-1 min-w-0 truncate">
+                                {pickedInstrument ? `${pickedInstrument.ticker} – ${pickedInstrument.nameTh ?? pickedInstrument.ticker}` : customName}
+                              </p>
+                              <button onClick={resetAddForm}><X className="h-3.5 w-3.5 text-muted-foreground" /></button>
+                            </div>
+                            <div className="flex gap-2 items-end">
+                              <div className="flex-1 space-y-1">
+                                <Label className="text-xs">ลงทุน/ปี (฿)</Label>
+                                <Input type="number" min={0}
+                                  max={fundMax ?? undefined}
+                                  placeholder="0" value={addValue}
+                                  onChange={e => setAddValue(e.target.value)}
+                                  className="h-8 text-sm" />
+                                {canAddMore !== null && <p className="text-[10px] text-muted-foreground">ลงได้อีก {thb(canAddMore)}</p>}
+                              </div>
+                              <Button size="sm" disabled={addSaving} onClick={() => handleAddTaxFund(fund)}>
+                                {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={resetAddForm}>ยกเลิก</Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <button onClick={() => handleStartTaxAdd(fund)}
+                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        <Plus className="h-3.5 w-3.5" /> เพิ่มกองทุน {fund.label}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>}
         </div>
       )}
 
@@ -1080,6 +1256,8 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
                         <div className="border-t divide-y">
                           {stockAssets.map(asset => {
                             const isEditing = editingId === asset.id;
+                            const assetAnnual = asset.annualInvestment ?? 0;
+                            const maxAnnual = persAnnualRemaining + assetAnnual;
                             return (
                               <div key={asset.id} className="px-4 py-2.5 space-y-2">
                                 <div className="flex items-center gap-2">
@@ -1094,14 +1272,6 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
                                       </p>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-xs text-muted-foreground">฿</span>
-                                    <Input type="number" min={0}
-                                      className="h-7 w-24 text-sm bg-muted/40 border-0 focus-visible:ring-1 rounded-lg px-2"
-                                      value={asset.currentValue || ""} placeholder="0"
-                                      onChange={e => handleValueChange(asset.id, parseFloat(e.target.value) || 0)}
-                                    />
-                                  </div>
                                   <button onClick={() => isEditing ? setEditingId(null) : openEdit(asset)}
                                     className={cn("p-1 rounded transition-colors shrink-0",
                                       isEditing ? "text-primary" : "text-muted-foreground/40 hover:text-foreground")}
@@ -1112,6 +1282,33 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
                                     className="p-1 text-muted-foreground/40 hover:text-destructive transition-colors rounded shrink-0">
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
+                                </div>
+                                {/* Dual inputs: annual investment + current NAV */}
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="space-y-1">
+                                    <Label className="text-[11px] text-muted-foreground font-medium">ลงทุน/ปี (฿)</Label>
+                                    <Input type="number" min={0}
+                                      max={persBudgetAnnual > 0 ? maxAnnual : undefined}
+                                      className="h-7 text-sm bg-muted/40 border-0 focus-visible:ring-1 rounded-lg px-2"
+                                      value={assetAnnual || ""} placeholder="0"
+                                      onChange={e => {
+                                        const v = parseFloat(e.target.value) || 0;
+                                        if (persBudgetAnnual > 0 && v > maxAnnual) return;
+                                        handleAnnualChange(asset.id, v);
+                                      }}
+                                    />
+                                    {persBudgetAnnual > 0 && (
+                                      <p className="text-[10px] text-muted-foreground">งบคงเหลือ {thb(persAnnualRemaining)}/ปี</p>
+                                    )}
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-[11px] text-muted-foreground font-medium">มูลค่าปัจจุบัน (฿)</Label>
+                                    <Input type="number" min={0}
+                                      className="h-7 text-sm bg-muted/40 border-0 focus-visible:ring-1 rounded-lg px-2"
+                                      value={asset.currentValue || ""} placeholder="0"
+                                      onChange={e => handleValueChange(asset.id, parseFloat(e.target.value) || 0)}
+                                    />
+                                  </div>
                                 </div>
                                 {isEditing && (
                                   <div className="ml-2 pl-3 border-l-2 border-primary/20 space-y-2 pb-1">
@@ -1150,15 +1347,14 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
                         </div>
                       )}
 
-                      {/* Lump sum row — always available for quick total entry */}
+                      {/* Lump sum row — only when no individual instruments */}
+                      {stockAssets.length === 0 ? (
                       <div className="border-t px-4 py-3 flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
-                          {stockAssets.length > 0 ? "ก้อนอื่น ฿" : "ยอดรวม ฿"}
-                        </span>
+                        <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">ยอดรวม ฿</span>
                         <Input
                           type="number" min={0}
                           className="h-8 text-sm flex-1"
-                          placeholder={stockAssets.length > 0 ? "0 — ลงทุนรวมเพิ่มเติม" : "0 — หรือเพิ่มรายหุ้นด้านล่าง"}
+                          placeholder="0 — หรือเพิ่มรายหุ้นด้านล่าง"
                           key={`lump-${type.code}-${lumpAsset?.id ?? "new"}`}
                           defaultValue={lumpAsset?.currentValue || ""}
                           onChange={e => handleLumpSumChange(type, parseFloat(e.target.value) || 0)}
@@ -1170,6 +1366,7 @@ function InvestmentTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof 
                           </button>
                         )}
                       </div>
+                      ) : null}
 
                       {/* Per-card inline add form */}
                       <div className="border-t px-4 py-2.5">
@@ -1352,15 +1549,13 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
 
   return (
     <div className="space-y-4">
-      {(p.totalDebt > 0 || p.emergencyFundAmount > 0) && (
+      {p.totalDebt > 0 && (
         <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
           <SummaryPill label="หนี้สินรวม" value={thb(p.totalDebt)} color={p.totalDebt > 0 ? "text-amber-600" : ""} />
           <SummaryPill label="ผ่อนชำระ/เดือน" value={thb(p.monthlyDebtPayment)} />
           {dti > 0 && <SummaryPill label="สัดส่วนหนี้/รายได้" value={`${dti.toFixed(1)}%`} color={dtiColor} />}
           {annualInterest > 0 && <SummaryPill label="ดอกเบี้ย/ปี" value={thb(annualInterest)} color="text-red-500" />}
           {debtFreeMonths !== null && <SummaryPill label="ปลดหนี้ใน" value={debtFreeMonths <= 120 ? `${debtFreeMonths} เดือน` : `${(debtFreeMonths/12).toFixed(0)} ปี`} />}
-          <SummaryPill label="เงินสำรองฉุกเฉิน" value={thb(p.emergencyFundAmount)} />
-          {emergencyMonths > 0 && <SummaryPill label="ครอบคลุม" value={`${emergencyMonths.toFixed(1)} เดือน`} color={efColor} />}
         </div>
       )}
       <SectionCard title="ภาระหนี้สิน" icon={AlertTriangle} iconColor="text-amber-500">
@@ -1378,7 +1573,7 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
         />
       </SectionCard>
       <SectionCard title="เงินออมและสำรอง" icon={Wallet} iconColor="text-emerald-500">
-        <NumField label="เงินสำรองฉุกเฉิน (บาท)" value={p.emergencyFundAmount} onChange={v => upd("emergencyFundAmount", v)} hint="เงินที่พร้อมถอนใช้ได้ทันที" />
+        <p className="text-sm text-muted-foreground col-span-2">ดูและแก้ไขข้อมูลเงินออมได้ที่แท็บ <button onClick={() => {}} className="text-primary underline">เงินออม</button></p>
         <NumField label="ค่าใช้จ่ายต่อเดือน (บาท)" value={p.monthlyExpenses} onChange={v => upd("monthlyExpenses", v)} hint="ใช้คำนวณจำนวนเดือนที่สำรองได้" />
       </SectionCard>
       <div className="grid sm:grid-cols-2 gap-3">
@@ -1403,6 +1598,372 @@ function DebtsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof Finan
   );
 }
 
+
+// ─── Tab: Savings ─────────────────────────────────────────────────────────────
+
+function SavingsTab({ p, upd }: { p: FinancialProfile; upd: <K extends keyof FinancialProfile>(k: K, v: FinancialProfile[K]) => void }) {
+  const totalLiquidity   = p.cashOnHand + p.savingsDeposit + p.fixedDeposit + p.emergencyFundAmount;
+  const emergencyMonths  = p.monthlyExpenses > 0 ? p.emergencyFundAmount / p.monthlyExpenses : 0;
+  const totalMonths      = p.monthlyExpenses > 0 ? totalLiquidity / p.monthlyExpenses : 0;
+  const efColor          = emergencyMonths === 0 ? "" : emergencyMonths < 3 ? "text-red-500" : emergencyMonths < 6 ? "text-amber-600" : "text-emerald-600";
+  const totalColor       = totalMonths === 0 ? "" : totalMonths < 3 ? "text-red-500" : totalMonths < 6 ? "text-amber-600" : "text-emerald-600";
+
+  const savingsRate = (() => {
+    const monthlyIncome = (p.annualSalary + p.bonus + p.otherIncome) / 12;
+    if (monthlyIncome <= 0 || p.monthlySavingsGoal <= 0) return null;
+    return (p.monthlySavingsGoal / monthlyIncome) * 100;
+  })();
+
+  return (
+    <div className="space-y-4">
+      {totalLiquidity > 0 && (
+        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="รวมสภาพคล่อง" value={totalLiquidity > 0 ? `฿${totalLiquidity.toLocaleString("th-TH")}` : "—"} color="text-teal-600" />
+          {totalMonths > 0 && <SummaryPill label="ครอบคลุม" value={`${totalMonths.toFixed(1)} เดือน`} color={totalColor} />}
+          {p.emergencyFundAmount > 0 && <SummaryPill label="กองทุนฉุกเฉิน" value={`฿${p.emergencyFundAmount.toLocaleString("th-TH")}`} />}
+          {emergencyMonths > 0 && <SummaryPill label="ฉุกเฉินครอบคลุม" value={`${emergencyMonths.toFixed(1)} เดือน`} color={efColor} />}
+          {savingsRate !== null && <SummaryPill label="อัตราออม" value={`${savingsRate.toFixed(1)}%/เดือน`} color={savingsRate >= 20 ? "text-emerald-600" : savingsRate >= 10 ? "text-amber-600" : "text-red-500"} />}
+        </div>
+      )}
+
+      <SectionCard title="สภาพคล่องและเงินออม" icon={PiggyBank} iconColor="text-teal-500">
+        <NumField label="กองทุนฉุกเฉิน (บาท)" value={p.emergencyFundAmount} onChange={v => upd("emergencyFundAmount", v)} hint="เงินสำรองฉุกเฉิน พร้อมถอนได้ทันที" />
+        <NumField label="เงินสดในมือ (บาท)" value={p.cashOnHand} onChange={v => upd("cashOnHand", v)} hint="เงินสดในมือและกระเป๋าสตางค์" />
+        <NumField label="เงินฝากออมทรัพย์ (บาท)" value={p.savingsDeposit} onChange={v => upd("savingsDeposit", v)} hint="ยอดรวมบัญชีออมทรัพย์ทุกธนาคาร" />
+        <NumField label="เงินฝากประจำ (บาท)" value={p.fixedDeposit} onChange={v => upd("fixedDeposit", v)} hint="Fixed deposit / บัญชีเงินฝากประจำ" />
+      </SectionCard>
+
+      <SectionCard title="ค่าใช้จ่ายและเป้าหมาย" icon={Target} iconColor="text-blue-500">
+        <NumField label="ค่าใช้จ่ายต่อเดือน (บาท)" value={p.monthlyExpenses} onChange={v => upd("monthlyExpenses", v)} hint="รวมค่าใช้จ่ายทั้งหมดต่อเดือน" />
+        <NumField label="เป้าหมายออม/เดือน (บาท)" value={p.monthlySavingsGoal} onChange={v => upd("monthlySavingsGoal", v)} hint="จำนวนเงินที่ตั้งใจออมต่อเดือน" />
+      </SectionCard>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        {emergencyMonths > 0 && (
+          <Card className={cn("border", emergencyMonths >= 6 ? "border-emerald-200 bg-emerald-50/50" : emergencyMonths >= 3 ? "border-amber-200 bg-amber-50/50" : "border-red-200 bg-red-50/50")}>
+            <CardContent className="pt-3 pb-3 text-sm">
+              <p className="font-semibold">{emergencyMonths >= 6 ? "✅ กองทุนฉุกเฉินเพียงพอ" : emergencyMonths >= 3 ? "⚠️ ควรเพิ่มกองทุนฉุกเฉิน" : "🚨 กองทุนฉุกเฉินไม่เพียงพอ"}</p>
+              <p className="text-muted-foreground mt-0.5">{emergencyMonths.toFixed(1)} เดือน — แนะนำอย่างน้อย 6 เดือน</p>
+            </CardContent>
+          </Card>
+        )}
+        {savingsRate !== null && (
+          <Card className={cn("border", savingsRate >= 20 ? "border-emerald-200 bg-emerald-50/50" : savingsRate >= 10 ? "border-amber-200 bg-amber-50/50" : "border-red-200 bg-red-50/50")}>
+            <CardContent className="pt-3 pb-3 text-sm">
+              <p className="font-semibold">{savingsRate >= 20 ? "✅ อัตราออมดีมาก" : savingsRate >= 10 ? "⚠️ อัตราออมพอใช้" : "🚨 ควรเพิ่มอัตราออม"}</p>
+              <p className="text-muted-foreground mt-0.5">ออม {savingsRate.toFixed(1)}% ของรายได้ — แนะนำ 20%+</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Tab: Goals ──────────────────────────────────────────────────────────────
+
+interface Goal {
+  id: string;
+  name: string;
+  goalType: string;
+  targetAmount: number;
+  currentAmount: number;
+  monthlyContribution: number;
+  annualReturnRate: number;
+  targetDate: string | null;
+  projection?: {
+    progressPercent: number;
+    onTrack: boolean;
+    monthsRemaining: number | null;
+    projectedCompletionDate: string | null;
+  };
+}
+
+const GOAL_TYPE_LABELS: Record<string, string> = {
+  retirement: "เกษียณ",
+  emergency_fund: "ฉุกเฉิน",
+  investment: "ลงทุน",
+  home_car: "บ้าน / รถ",
+  education: "การศึกษา",
+  custom: "อื่นๆ",
+};
+const GOAL_TYPE_EMOJI: Record<string, string> = {
+  retirement: "🏖️",
+  emergency_fund: "🛡️",
+  investment: "📈",
+  home_car: "🏠",
+  education: "🎓",
+  custom: "🎯",
+};
+
+const defaultGoalForm = {
+  name: "",
+  goalType: "custom",
+  targetAmount: 0,
+  currentAmount: 0,
+  monthlyContribution: 0,
+  annualReturnRate: 5,
+  targetDate: "",
+};
+
+function GoalsTab({ p }: { p: FinancialProfile }) {
+  const [goals, setGoals]           = useState<Goal[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(true);
+  const [showForm, setShowForm]     = useState(false);
+  const [editGoal, setEditGoal]     = useState<Goal | null>(null);
+  const [form, setForm]             = useState(defaultGoalForm);
+  const [formSaving, setFormSaving] = useState(false);
+  const [deleteId, setDeleteId]     = useState<string | null>(null);
+
+  const loadGoals = useCallback(async () => {
+    setGoalsLoading(true);
+    try {
+      const res  = await fetch("/api/goals");
+      const json = await res.json();
+      setGoals(json.data ?? []);
+    } finally {
+      setGoalsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadGoals(); }, [loadGoals]);
+
+  const totalMonthly   = goals.reduce((s, g) => s + Number(g.monthlyContribution), 0);
+  const monthlyIncome  = (p.annualSalary + p.bonus + p.otherIncome) / 12;
+  const totalInsurance = (
+    p.lifeInsurancePremium + p.healthInsurancePremium +
+    p.parentHealthInsurancePremium + p.annuityInsurancePremium +
+    p.spouseLifeInsurancePremium
+  ) / 12;
+  const remainingToInvest = monthlyIncome - p.monthlyExpenses - p.monthlyDebtPayment - totalInsurance - totalMonthly;
+
+  function openAdd() {
+    setEditGoal(null);
+    setForm(defaultGoalForm);
+    setShowForm(true);
+  }
+
+  function openEdit(g: Goal) {
+    setEditGoal(g);
+    setForm({
+      name: g.name,
+      goalType: g.goalType,
+      targetAmount: Number(g.targetAmount),
+      currentAmount: Number(g.currentAmount),
+      monthlyContribution: Number(g.monthlyContribution),
+      annualReturnRate: Number(g.annualReturnRate),
+      targetDate: g.targetDate ? g.targetDate.slice(0, 10) : "",
+    });
+    setShowForm(true);
+  }
+
+  async function handleSubmit() {
+    if (!form.name.trim() || form.targetAmount <= 0) return;
+    setFormSaving(true);
+    try {
+      const body = {
+        ...form,
+        targetAmount: Number(form.targetAmount),
+        currentAmount: Number(form.currentAmount),
+        monthlyContribution: Number(form.monthlyContribution),
+        annualReturnRate: Number(form.annualReturnRate),
+        targetDate: form.targetDate ? new Date(form.targetDate).toISOString() : undefined,
+      };
+      if (editGoal) {
+        await fetch(`/api/goals/${editGoal.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } else {
+        await fetch("/api/goals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
+      setShowForm(false);
+      await loadGoals();
+    } finally {
+      setFormSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setDeleteId(id);
+    try {
+      await fetch(`/api/goals/${id}`, { method: "DELETE" });
+      await loadGoals();
+    } finally {
+      setDeleteId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary banner */}
+      {monthlyIncome > 0 && (
+        <div className="flex flex-wrap gap-6 px-4 py-3 rounded-xl bg-muted/50 border">
+          <SummaryPill label="รายได้/เดือน"        value={thb(Math.round(monthlyIncome))}    color="text-blue-600" />
+          {totalMonthly > 0  && <SummaryPill label="ออมตามเป้าหมาย/เดือน" value={thb(totalMonthly)}    color="text-rose-500" />}
+          <SummaryPill
+            label="เหลือลงทุน/เดือน"
+            value={remainingToInvest > 0 ? thb(Math.round(remainingToInvest)) : "—"}
+            color={remainingToInvest > 0 ? "text-emerald-600" : "text-red-500"}
+          />
+        </div>
+      )}
+
+      {/* Goals list */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-muted-foreground">เป้าหมายทั้งหมด ({goals.length})</h3>
+        <Button size="sm" onClick={openAdd} className="gap-1.5"><Plus className="h-3.5 w-3.5" />เพิ่มเป้าหมาย</Button>
+      </div>
+
+      {goalsLoading ? (
+        <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : goals.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+            <Target className="h-8 w-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">ยังไม่มีเป้าหมาย กด &quot;เพิ่มเป้าหมาย&quot; เพื่อเริ่มต้น</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {goals.map(g => {
+            const pct    = g.projection?.progressPercent ?? (g.targetAmount > 0 ? Math.min(100, (Number(g.currentAmount) / Number(g.targetAmount)) * 100) : 0);
+            const months = g.projection?.monthsRemaining;
+            const onTrack = g.projection?.onTrack;
+            return (
+              <Card key={g.id} className="overflow-hidden">
+                <CardContent className="pt-4 pb-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{GOAL_TYPE_EMOJI[g.goalType] ?? "🎯"}</span>
+                      <div>
+                        <p className="font-semibold text-sm leading-tight">{g.name}</p>
+                        <p className="text-xs text-muted-foreground">{GOAL_TYPE_LABELS[g.goalType] ?? g.goalType}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(g)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-600" onClick={() => handleDelete(g.id)} disabled={deleteId === g.id}>
+                        {deleteId === g.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="mb-2">
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>฿{Number(g.currentAmount).toLocaleString("th-TH")} / ฿{Number(g.targetAmount).toLocaleString("th-TH")}</span>
+                      <span>{pct.toFixed(1)}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-rose-500 transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                    {Number(g.monthlyContribution) > 0 && <span>ออม ฿{Number(g.monthlyContribution).toLocaleString("th-TH")}/เดือน</span>}
+                    {Number(g.annualReturnRate) > 0    && <span>ผลตอบแทน {Number(g.annualReturnRate)}%/ปี</span>}
+                    {g.targetDate && <span>เป้า {new Date(g.targetDate).toLocaleDateString("th-TH", { year: "numeric", month: "short" })}</span>}
+                    {months !== null && months !== undefined && (
+                      <span className={onTrack ? "text-emerald-600 font-medium" : "text-amber-600 font-medium"}>
+                        {onTrack ? "✅" : "⚠️"} {months <= 0 ? "ถึงเป้าแล้ว" : months < 24 ? `อีก ${months} เดือน` : `อีก ${(months / 12).toFixed(1)} ปี`}
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Cash flow insight */}
+      {monthlyIncome > 0 && goals.length > 0 && (
+        <Card className={cn("border", remainingToInvest > 0 ? "border-emerald-200 bg-emerald-50/50" : "border-red-200 bg-red-50/50")}>
+          <CardContent className="pt-3 pb-3 text-sm space-y-1">
+            <p className="font-semibold">{remainingToInvest > 0 ? "✅ มีเงินเหลือลงทุน" : "🚨 รายได้ไม่พอครอบคลุมภาระทั้งหมด"}</p>
+            <div className="text-muted-foreground space-y-0.5 text-xs">
+              <p>รายได้/เดือน: ฿{Math.round(monthlyIncome).toLocaleString("th-TH")}</p>
+              {p.monthlyExpenses > 0 && <p className="ml-2">− ค่าใช้จ่าย: ฿{p.monthlyExpenses.toLocaleString("th-TH")}</p>}
+              {p.monthlyDebtPayment > 0 && <p className="ml-2">− ผ่อนหนี้: ฿{p.monthlyDebtPayment.toLocaleString("th-TH")}</p>}
+              {totalInsurance > 0 && <p className="ml-2">− เบี้ยประกัน: ฿{Math.round(totalInsurance).toLocaleString("th-TH")}</p>}
+              {totalMonthly > 0 && <p className="ml-2">− ออมตามเป้าหมาย: ฿{totalMonthly.toLocaleString("th-TH")}</p>}
+              <p className={cn("font-semibold mt-1", remainingToInvest > 0 ? "text-emerald-700" : "text-red-600")}>
+                = {remainingToInvest > 0 ? "เหลือลงทุน" : "ขาด"}: ฿{Math.abs(Math.round(remainingToInvest)).toLocaleString("th-TH")}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Add/Edit modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={e => { if (e.target === e.currentTarget) setShowForm(false); }}>
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <CardHeader className="pb-3 pt-4">
+              <CardTitle className="text-base flex items-center justify-between">
+                {editGoal ? "แก้ไขเป้าหมาย" : "เพิ่มเป้าหมายใหม่"}
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setShowForm(false)}><X className="h-4 w-4" /></Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pb-5">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">ชื่อเป้าหมาย</Label>
+                <Input
+                  placeholder="เช่น ซื้อบ้าน, เกษียณอายุ 55"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">ประเภท</Label>
+                <select
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={form.goalType}
+                  onChange={e => setForm(f => ({ ...f, goalType: e.target.value }))}
+                >
+                  {Object.entries(GOAL_TYPE_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{GOAL_TYPE_EMOJI[k]} {v}</option>
+                  ))}
+                </select>
+              </div>
+
+              <NumField label="เป้าหมายเงิน (บาท)" value={form.targetAmount} onChange={v => setForm(f => ({ ...f, targetAmount: v }))} hint="จำนวนเงินที่ต้องการสะสม" />
+              <NumField label="มีอยู่แล้ว (บาท)" value={form.currentAmount} onChange={v => setForm(f => ({ ...f, currentAmount: v }))} hint="เงินที่สะสมไว้แล้วถึงตอนนี้" />
+              <NumField label="ออม/เดือน (บาท)" value={form.monthlyContribution} onChange={v => setForm(f => ({ ...f, monthlyContribution: v }))} hint="จำนวนที่ตั้งใจออมต่อเดือน" />
+              <NumField label="ผลตอบแทนคาดหวัง (%/ปี)" value={form.annualReturnRate} onChange={v => setForm(f => ({ ...f, annualReturnRate: v }))} hint="เช่น 5 สำหรับ RMF/หุ้น, 1.5 สำหรับออมทรัพย์" />
+
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">วันที่เป้าหมาย</Label>
+                <Input
+                  type="date"
+                  value={form.targetDate}
+                  onChange={e => setForm(f => ({ ...f, targetDate: e.target.value }))}
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <Button className="flex-1" onClick={handleSubmit} disabled={formSaving || !form.name.trim() || form.targetAmount <= 0}>
+                  {formSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  {editGoal ? "บันทึกการแก้ไข" : "เพิ่มเป้าหมาย"}
+                </Button>
+                <Button variant="outline" onClick={() => setShowForm(false)}>ยกเลิก</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MyDataPage() {
   const [tab, setTab] = useState<TabKey>("income");
 
@@ -1410,7 +1971,7 @@ export default function MyDataPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get("tab") as TabKey;
-    if (t && ["income", "insurance", "investment", "debts"].includes(t)) {
+    if (t && ["income", "insurance", "investment", "debts", "savings", "goals"].includes(t)) {
       setTab(t);
     }
   }, []);
@@ -1419,6 +1980,84 @@ export default function MyDataPage() {
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  const [copied, setCopied]     = useState(false);
+
+  function buildPrompt(): string {
+    const fmt = (n: number) => n.toLocaleString("th-TH");
+    const filingMap: Record<string, string> = {
+      single: "โสด",
+      married_filing_jointly: "แต่งงาน (ยื่นร่วม)",
+      married_filing_separately: "แต่งงาน (ยื่นแยก)",
+      head_of_household: "หัวหน้าครัวเรือน",
+    };
+    const p = profile;
+    const monthlyIncome = Math.round((p.annualSalary + p.bonus + p.otherIncome + p.spouseIncome + p.dividendIncome + p.taxRefundAmount) / 12);
+    const totalInvest = p.goldAmount + p.cryptoAmount + p.etfAmount + p.thaiStockAmount + p.foreignStockAmount + p.otherInvestAmount;
+    const totalLiquid = p.cashOnHand + p.savingsDeposit + p.fixedDeposit;
+    const totalTaxSaving = p.providentFundAmount + p.lifeInsurancePremium + p.healthInsurancePremium + p.parentHealthInsurancePremium + p.annuityInsurancePremium + p.rmfAmount + p.ssfAmount + p.thaiEsgAmount;
+
+    return `คุณเป็น AI ที่ปรึกษาการเงินส่วนบุคคล โปรดช่วยวิเคราะห์สุขภาพการเงิน (Financial Analysis) จากข้อมูลด้านล่างนี้ และให้คำแนะนำที่ครบถ้วนนำไปปฏิบัติได้จริง
+
+═══════════════════════════════
+📋 ข้อมูลส่วนตัวและครอบครัว
+═══════════════════════════════
+สถานะ: ${filingMap[p.filingStatus] ?? p.filingStatus}
+บุตร: ${p.numChildren} คน  ผู้ปกครอง: ${p.numParents} คน${p.numDisabledDependents > 0 ? `  ผู้พิการ: ${p.numDisabledDependents} คน` : ""}
+
+═══════════════════════════════
+💰 รายได้
+═══════════════════════════════
+เงินเดือน/ปี: ${fmt(p.annualSalary)} บาท${p.bonus > 0 ? `\nโบนัส/ปี: ${fmt(p.bonus)} บาท` : ""}${p.otherIncome > 0 ? `\nรายได้อื่นๆ/ปี: ${fmt(p.otherIncome)} บาท` : ""}${p.spouseIncome > 0 ? `\nรายได้คู่สมรส/ปี: ${fmt(p.spouseIncome)} บาท` : ""}${p.dividendIncome > 0 ? `\nเงินปันผล/ปี: ${fmt(p.dividendIncome)} บาท` : ""}${p.taxRefundAmount > 0 ? `\nเงินคืนภาษี/ปี: ${fmt(p.taxRefundAmount)} บาท` : ""}
+รายได้รวม/เดือน (ประมาณ): ${fmt(monthlyIncome)} บาท
+ภาษีหัก ณ ที่จ่าย/ปี: ${fmt(p.withheldTax)} บาท
+ประกันสังคม/ปี: ${fmt(p.socialSecurity)} บาท
+
+═══════════════════════════════
+🏠 ค่าใช้จ่ายรายเดือน
+═══════════════════════════════
+ค่าใช้จ่ายรวม/เดือน: ${fmt(p.monthlyExpenses)} บาท${p.budgetHousing > 0 ? `\n  ที่อยู่อาศัย: ${fmt(p.budgetHousing)} บาท` : ""}${p.budgetFood > 0 ? `\n  อาหาร: ${fmt(p.budgetFood)} บาท` : ""}${p.budgetTransport > 0 ? `\n  การเดินทาง: ${fmt(p.budgetTransport)} บาท` : ""}${p.budgetUtilities > 0 ? `\n  สาธารณูปโภค: ${fmt(p.budgetUtilities)} บาท` : ""}${p.budgetHealthcare > 0 ? `\n  สุขภาพ: ${fmt(p.budgetHealthcare)} บาท` : ""}${p.budgetEntertainment > 0 ? `\n  ความบันเทิง: ${fmt(p.budgetEntertainment)} บาท` : ""}${p.budgetEducation > 0 ? `\n  การศึกษา: ${fmt(p.budgetEducation)} บาท` : ""}${p.budgetPersonalCare > 0 ? `\n  ดูแลตัวเอง: ${fmt(p.budgetPersonalCare)} บาท` : ""}${p.budgetOther > 0 ? `\n  อื่นๆ: ${fmt(p.budgetOther)} บาท` : ""}
+
+═══════════════════════════════
+🛡️ ประกันภัย
+═══════════════════════════════${p.lifeInsurancePremium > 0 ? `\nประกันชีวิต: เบี้ย ${fmt(p.lifeInsurancePremium)} บาท/ปี${ins.lifeCoverageAmount > 0 ? ` | ทุนประกัน ${fmt(ins.lifeCoverageAmount)} บาท` : ""}` : "\nประกันชีวิต: ไม่มี"}${p.healthInsurancePremium > 0 ? `\nประกันสุขภาพ: เบี้ย ${fmt(p.healthInsurancePremium)} บาท/ปี${ins.healthCoveragePerYear > 0 ? ` | วงเงิน ${fmt(ins.healthCoveragePerYear)} บาท/ปี` : ""}` : "\nประกันสุขภาพ: ไม่มี"}${p.parentHealthInsurancePremium > 0 ? `\nประกันสุขภาพบิดา/มารดา: เบี้ย ${fmt(p.parentHealthInsurancePremium)} บาท/ปี` : ""}${p.annuityInsurancePremium > 0 ? `\nประกันบำนาญ: เบี้ย ${fmt(p.annuityInsurancePremium)} บาท/ปี${ins.annuityCoverageAmount > 0 ? ` | บำนาญ ${fmt(ins.annuityCoverageAmount)} บาท/ปี` : ""}` : ""}${p.spouseLifeInsurancePremium > 0 ? `\nประกันชีวิตคู่สมรส: เบี้ย ${fmt(p.spouseLifeInsurancePremium)} บาท/ปี` : ""}
+
+═══════════════════════════════
+📈 การลงทุนและลดหย่อนภาษี
+═══════════════════════════════
+กองทุนสำรองเลี้ยงชีพ (PVD): อัตรา ${p.providentFundRate}% | ${fmt(p.providentFundAmount)} บาท/ปี${p.rmfAmount > 0 ? `\nRMF: ${fmt(p.rmfAmount)} บาท/ปี` : ""}${p.ssfAmount > 0 ? `\nSSF: ${fmt(p.ssfAmount)} บาท/ปี` : ""}${p.thaiEsgAmount > 0 ? `\nThai ESG: ${fmt(p.thaiEsgAmount)} บาท/ปี` : ""}
+รวมลงทุนลดหย่อนภาษี/ปี: ${fmt(totalTaxSaving)} บาท
+ลงทุนลดหย่อน/เดือน: ${fmt(p.monthlyInvestTax)} บาท
+
+พอร์ตการลงทุนส่วนตัว (มูลค่าตลาด):${p.thaiStockAmount > 0 ? `\n  หุ้นไทย: ${fmt(p.thaiStockAmount)} บาท` : ""}${p.foreignStockAmount > 0 ? `\n  หุ้นต่างประเทศ: ${fmt(p.foreignStockAmount)} บาท` : ""}${p.etfAmount > 0 ? `\n  ETF/กองทุน: ${fmt(p.etfAmount)} บาท` : ""}${p.goldAmount > 0 ? `\n  ทอง: ${fmt(p.goldAmount)} บาท` : ""}${p.cryptoAmount > 0 ? `\n  Crypto: ${fmt(p.cryptoAmount)} บาท` : ""}${p.otherInvestAmount > 0 ? `\n  อื่นๆ: ${fmt(p.otherInvestAmount)} บาท` : ""}
+รวมพอร์ตส่วนตัว: ${fmt(totalInvest)} บาท
+ลงทุนส่วนตัว/เดือน: ${fmt(p.monthlyInvestPersonal)} บาท
+
+═══════════════════════════════
+🏦 เงินออมและสภาพคล่อง
+═══════════════════════════════${p.cashOnHand > 0 ? `\nเงินสด: ${fmt(p.cashOnHand)} บาท` : ""}${p.savingsDeposit > 0 ? `\nเงินฝากออมทรัพย์: ${fmt(p.savingsDeposit)} บาท` : ""}${p.fixedDeposit > 0 ? `\nเงินฝากประจำ: ${fmt(p.fixedDeposit)} บาท` : ""}
+รวมสภาพคล่อง: ${fmt(totalLiquid)} บาท
+กองทุนฉุกเฉิน: ${fmt(p.emergencyFundAmount)} บาท
+เป้าหมายออม/เดือน: ${fmt(p.monthlySavingsGoal)} บาท
+
+═══════════════════════════════
+💳 หนี้สิน
+═══════════════════════════════
+หนี้รวม: ${fmt(p.totalDebt)} บาท
+ผ่อน/เดือน: ${fmt(p.monthlyDebtPayment)} บาท
+ดอกเบี้ยเฉลี่ย: ${p.debtInterestRate}% ต่อปี
+
+═══════════════════════════════
+🎯 โปรดวิเคราะห์และแนะนำ:
+═══════════════════════════════
+1. สุขภาพ Cash Flow — รายรับ-รายจ่าย-เงินออม สมดุลดีหรือไม่?
+2. กองทุนฉุกเฉิน — เพียงพอหรือไม่ ควรมีเท่าไหร่?
+3. ภาระหนี้ — ควรจัดการอย่างไร มีความเสี่ยงหรือไม่?
+4. ประกัน — ความคุ้มครองครบถ้วนหรือไม่ ควรเพิ่มอะไร?
+5. การลงทุน — Portfolio การจัดสรรสินทรัพย์เหมาะสมหรือไม่?
+6. ภาษี — มีโอกาสลดหย่อนเพิ่มได้อีกหรือไม่?
+7. สิ่งที่ควรทำเร่งด่วน 3 อันดับแรก`;
+  }
 
   const updIns = useCallback((k: keyof InsuranceState, v: number) => {
     setIns(s => ({ ...s, [k]: v }));
@@ -1439,6 +2078,8 @@ export default function MyDataPage() {
           otherIncome: Number(d.otherIncome ?? 0),
           spouseIncome: Number(d.spouseIncome ?? 0),
           withheldTax: Number(d.withheldTax ?? 0),
+          taxRefundAmount: Number(d.taxRefundAmount ?? 0),
+          dividendIncome: Number(d.dividendIncome ?? 0),
           socialSecurity: Number(d.socialSecurity ?? 0),
           providentFundRate: Number(d.providentFundRate ?? 0),
           providentFundAmount: Number(d.providentFundAmount ?? 0),
@@ -1462,6 +2103,21 @@ export default function MyDataPage() {
           debtInterestRate: Number(d.debtInterestRate ?? 0),
           emergencyFundAmount: Number(d.emergencyFundAmount ?? 0),
           monthlyExpenses: Number(d.monthlyExpenses ?? 0),
+          cashOnHand: Number(d.cashOnHand ?? 0),
+          savingsDeposit: Number(d.savingsDeposit ?? 0),
+          fixedDeposit: Number(d.fixedDeposit ?? 0),
+          monthlySavingsGoal: Number(d.monthlySavingsGoal ?? 0),
+          budgetHousing: Number(d.budgetHousing ?? 0),
+          budgetFood: Number(d.budgetFood ?? 0),
+          budgetTransport: Number(d.budgetTransport ?? 0),
+          budgetUtilities: Number(d.budgetUtilities ?? 0),
+          budgetHealthcare: Number(d.budgetHealthcare ?? 0),
+          budgetEntertainment: Number(d.budgetEntertainment ?? 0),
+          budgetEducation: Number(d.budgetEducation ?? 0),
+          budgetPersonalCare: Number(d.budgetPersonalCare ?? 0),
+          budgetOther: Number(d.budgetOther ?? 0),
+          monthlyInvestTax: Number(d.monthlyInvestTax ?? 0),
+          monthlyInvestPersonal: Number(d.monthlyInvestPersonal ?? 0),
         });
       }
       setLoading(false);
@@ -1530,10 +2186,22 @@ export default function MyDataPage() {
             ข้อมูลนี้ถูกใช้โดย AI ที่ปรึกษา · คำนวณภาษี · วิเคราะห์ประกัน · แผนการเงิน
           </p>
         </div>
-        <Button onClick={handleSave} disabled={saving} size="sm">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : saved ? <CheckCircle2 className="h-4 w-4 mr-2 text-emerald-400" /> : <Save className="h-4 w-4 mr-2" />}
-          {saving ? "กำลังบันทึก..." : saved ? "บันทึกแล้ว" : "บันทึก"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowPromptModal(true)}
+            className="flex items-center gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50"
+          >
+            <Bot className="h-4 w-4" />
+            <span className="hidden sm:inline">Export to AI Prompt</span>
+            <span className="sm:hidden">AI</span>
+          </Button>
+          <Button onClick={handleSave} disabled={saving} size="sm">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : saved ? <CheckCircle2 className="h-4 w-4 mr-2 text-emerald-400" /> : <Save className="h-4 w-4 mr-2" />}
+            {saving ? "กำลังบันทึก..." : saved ? "บันทึกแล้ว" : "บันทึก"}
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -1560,6 +2228,9 @@ export default function MyDataPage() {
       {tab === "insurance"   && <InsuranceTab   p={profile} upd={upd} ins={ins} updIns={updIns} />}
       {tab === "investment"  && <InvestmentTab  p={profile} upd={upd} />}
       {tab === "debts"       && <DebtsTab       p={profile} upd={upd} />}
+      {tab === "savings"     && <SavingsTab     p={profile} upd={upd} />}
+      {tab === "goals"       && <GoalsTab       p={profile} />}
+
 
       {/* Bottom save */}
       <div className="flex items-center gap-3 pt-2 border-t">
@@ -1569,6 +2240,67 @@ export default function MyDataPage() {
         </Button>
         {saved && <span className="flex items-center gap-1 text-sm text-emerald-600"><CheckCircle2 className="h-4 w-4" />บันทึกสำเร็จ</span>}
       </div>
+
+      {/* AI Prompt Modal */}
+      {showPromptModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPromptModal(false); }}
+        >
+          <div className="bg-background border rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+              <div className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-violet-500" />
+                <div>
+                  <p className="font-semibold text-sm">AI Financial Analysis Prompt</p>
+                  <p className="text-xs text-muted-foreground">คัดลอก prompt นี้ไปวางใน ChatGPT, Claude หรือ AI อื่นๆ</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPromptModal(false)}
+                className="rounded-md p-1.5 hover:bg-muted transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Prompt Text */}
+            <div className="flex-1 overflow-y-auto p-5">
+              <pre className="text-xs leading-relaxed whitespace-pre-wrap font-mono bg-muted/50 rounded-lg p-4 border select-all">
+                {buildPrompt()}
+              </pre>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-t shrink-0">
+              <p className="text-xs text-muted-foreground">คลิกที่ข้อความเพื่อเลือกทั้งหมด หรือกด Copy</p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPromptModal(false)}
+                >
+                  ปิด
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    navigator.clipboard.writeText(buildPrompt()).then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }).catch(() => {});
+                  }}
+                >
+                  {copied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copied ? "คัดลอกแล้ว!" : "Copy Prompt"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

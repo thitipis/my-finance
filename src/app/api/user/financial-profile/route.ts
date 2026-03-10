@@ -15,6 +15,8 @@ const FinancialProfileSchema = z.object({
   otherIncome: z.coerce.number().min(0).optional(),
   spouseIncome: z.coerce.number().min(0).optional(),
   withheldTax: z.coerce.number().min(0).optional(),
+  taxRefundAmount: z.coerce.number().min(0).optional(),
+  dividendIncome: z.coerce.number().min(0).optional(),
   // Payroll
   socialSecurity: z.coerce.number().min(0).optional(),
   providentFundRate: z.coerce.number().min(0).max(15).optional(),
@@ -44,6 +46,24 @@ const FinancialProfileSchema = z.object({
   // Emergency fund
   emergencyFundAmount: z.coerce.number().min(0).optional(),
   monthlyExpenses: z.coerce.number().min(0).optional(),
+  // Savings
+  cashOnHand: z.coerce.number().min(0).optional(),
+  savingsDeposit: z.coerce.number().min(0).optional(),
+  fixedDeposit: z.coerce.number().min(0).optional(),
+  monthlySavingsGoal: z.coerce.number().min(0).optional(),
+  // Monthly budget breakdown
+  budgetHousing: z.coerce.number().min(0).optional(),
+  budgetFood: z.coerce.number().min(0).optional(),
+  budgetTransport: z.coerce.number().min(0).optional(),
+  budgetUtilities: z.coerce.number().min(0).optional(),
+  budgetHealthcare: z.coerce.number().min(0).optional(),
+  budgetEntertainment: z.coerce.number().min(0).optional(),
+  budgetEducation: z.coerce.number().min(0).optional(),
+  budgetPersonalCare: z.coerce.number().min(0).optional(),
+  budgetOther: z.coerce.number().min(0).optional(),
+  // Monthly investment targets
+  monthlyInvestTax: z.coerce.number().min(0).optional(),
+  monthlyInvestPersonal: z.coerce.number().min(0).optional(),
 });
 
 export async function GET() {

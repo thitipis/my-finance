@@ -66,8 +66,9 @@ model User {
   insuranceData    InsuranceData?
   usageEvents      UsageEvent[]
   financialProfile FinancialProfile?
-  riskAssessment   RiskAssessment?
-  taxResults       TaxResult[]
+  riskAssessment      RiskAssessment?
+  taxResults          TaxResult[]
+  assessmentSessions  AssessmentSession[]
   aiSettings       AiSettings?
   financialPlan    FinancialPlan?
   portfolioAssets  PortfolioAsset[]
@@ -348,8 +349,33 @@ model FinancialProfile {
   debtInterestRate   Decimal? @default(0) @map("debt_interest_rate") @db.Decimal(5, 2) // weighted avg annual interest %
 
   // Emergency fund & living expenses
-  emergencyFundAmount Decimal @default(0) @map("emergency_fund_amount") @db.Decimal(15, 2)
-  monthlyExpenses     Decimal @default(0) @map("monthly_expenses") @db.Decimal(15, 2)
+  emergencyFundAmount  Decimal @default(0) @map("emergency_fund_amount") @db.Decimal(15, 2)
+  monthlyExpenses      Decimal @default(0) @map("monthly_expenses") @db.Decimal(15, 2)
+
+  // Savings accounts
+  cashOnHand         Decimal @default(0) @map("cash_on_hand") @db.Decimal(15, 2)         // เงินสดในมือ
+  savingsDeposit     Decimal @default(0) @map("savings_deposit") @db.Decimal(15, 2)      // เงินฝากออมทรัพย์
+  fixedDeposit       Decimal @default(0) @map("fixed_deposit") @db.Decimal(15, 2)        // เงินฝากประจำ
+  monthlySavingsGoal Decimal @default(0) @map("monthly_savings_goal") @db.Decimal(15, 2) // เป้าหมายออม/เดือน
+
+  // Monthly budget breakdown (all monthly amounts)
+  budgetHousing       Decimal @default(0) @map("budget_housing") @db.Decimal(15, 2)       // ที่อยู่อาศัย
+  budgetFood          Decimal @default(0) @map("budget_food") @db.Decimal(15, 2)           // อาหาร
+  budgetTransport     Decimal @default(0) @map("budget_transport") @db.Decimal(15, 2)      // การเดินทาง
+  budgetUtilities     Decimal @default(0) @map("budget_utilities") @db.Decimal(15, 2)      // สาธารณูปโภค
+  budgetHealthcare    Decimal @default(0) @map("budget_healthcare") @db.Decimal(15, 2)     // สุขภาพ
+  budgetEntertainment Decimal @default(0) @map("budget_entertainment") @db.Decimal(15, 2)  // บันเทิง/ท่องเที่ยว
+  budgetEducation     Decimal @default(0) @map("budget_education") @db.Decimal(15, 2)      // การศึกษา
+  budgetPersonalCare  Decimal @default(0) @map("budget_personal_care") @db.Decimal(15, 2)  // ดูแลตัวเอง
+  budgetOther         Decimal @default(0) @map("budget_other") @db.Decimal(15, 2)          // อื่น ๆ
+
+  // Additional income
+  taxRefundAmount Decimal @default(0) @map("tax_refund_amount") @db.Decimal(15, 2) // เงินคืนภาษี/ปี
+  dividendIncome  Decimal @default(0) @map("dividend_income") @db.Decimal(15, 2)   // เงินปันผล จากหุ้น/ปี
+
+  // Monthly investment targets
+  monthlyInvestTax      Decimal? @map("monthly_invest_tax") @db.Decimal(15, 2)      // ลงทุนลดหย่อนภาษี/เดือน
+  monthlyInvestPersonal Decimal? @map("monthly_invest_personal") @db.Decimal(15, 2) // ลงทุนส่วนตัว/เดือน
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -373,6 +399,23 @@ model RiskAssessment {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("risk_assessments")
+}
+
+// ─── Assessment Sessions (history) ─────────────────────────────────────────────
+
+model AssessmentSession {
+  id      String   @id @default(uuid())
+  userId  String   @map("user_id")
+  type    String   @db.VarChar(20) // "risk" | "personality" | "knowledge" | "goals"
+  score   Int      @default(0)
+  maxScore Int     @default(0) @map("max_score")
+  result  Json     // type-specific summary: { level, label, ... }
+  takenAt DateTime @default(now()) @map("taken_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("assessment_sessions")
 }
 
 // ─── Tax Results (full calculation history) ───────────────────────────────────
@@ -487,10 +530,11 @@ model PortfolioAsset {
   group          String   @default("other") // "thai" | "international" | "other"
   emoji          String   @default("💰")
   // Valuation
-  currentValue   Decimal  @default(0) @map("current_value") @db.Decimal(15, 2)
-  units          Decimal? @db.Decimal(20, 8)          // number of shares / coins / grams
-  avgCostPerUnit Decimal? @map("avg_cost_per_unit") @db.Decimal(15, 4)  // avg buy price per unit
-  expectedReturn Decimal? @map("expected_return") @db.Decimal(5, 2)     // annual expected return % (e.g. 7.0 = 7%/year)
+  currentValue     Decimal  @default(0) @map("current_value") @db.Decimal(15, 2)
+  annualInvestment Decimal? @map("annual_investment") @db.Decimal(15, 2)  // how much invested per year (used for tax funds and personal saving plan)
+  units            Decimal? @db.Decimal(20, 8)          // number of shares / coins / grams
+  avgCostPerUnit   Decimal? @map("avg_cost_per_unit") @db.Decimal(15, 4)  // avg buy price per unit
+  expectedReturn   Decimal? @map("expected_return") @db.Decimal(5, 2)     // annual expected return % (e.g. 7.0 = 7%/year)
   // Meta
   isBuiltIn      Boolean  @default(false) @map("is_built_in")
   sortOrder      Int      @default(0) @map("sort_order")

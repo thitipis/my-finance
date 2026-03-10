@@ -202,10 +202,10 @@ async function main() {
   const demoPassword = await bcrypt.hash("demo1234", 10);
   const demoUser = await prisma.user.upsert({
     where: { email: "demo@myfinance.th" },
-    update: { passwordHash: demoPassword, tier: "premium", name: "สมชาย มีเงิน" },
+    update: { passwordHash: demoPassword, tier: "premium", name: "สมชาย วิถีกลาง" },
     create: {
       email: "demo@myfinance.th",
-      name: "สมชาย มีเงิน",
+      name: "สมชาย วิถีกลาง",
       passwordHash: demoPassword,
       tier: "premium",
       language: "th",
@@ -213,40 +213,58 @@ async function main() {
   });
   console.log(`  ✅ demo@myfinance.th (password: demo1234)`);
 
-  // Financial Profile
+  /*
+   * Demo persona: สมชาย วิถีกลาง, อายุ 32 ปี, โสด, พนักงานออฟฟิศระดับกลาง
+   * เงินเดือน ~45,800/เดือน | มีรถผ่อน | เช่าคอนโด | ออมสม่ำเสมอ | ไม่ร่ำรวยไม่จนเกินไป
+   */
+
+  // ── Financial Profile ─────────────────────────────────────────────────────
   const demoProfileData = {
-    filingStatus: "married_separate" as const,
-    annualSalary: 1200000,
-    bonus: 120000,
-    otherIncome: 60000,
-    spouseIncome: 480000,
-    withheldTax: 95000,
-    socialSecurity: 9000,
-    providentFundAmount: 120000,
+    filingStatus: "single" as const,
+    annualSalary: 550000,       // ~45,833/เดือน
+    bonus: 30000,               // โบนัส ~0.65 เดือน
+    otherIncome: 0,
+    spouseIncome: 0,
+    withheldTax: 30000,
+    socialSecurity: 9000,       // หักสูงสุด 750/เดือน
     providentFundRate: 5,
-    numChildren: 1,
+    providentFundAmount: 27500, // 5% of 550,000
+    numChildren: 0,
     numParents: 2,
     numDisabledDependents: 0,
-    monthlyExpenses: 45000,
-    emergencyFundAmount: 270000,
-    totalDebt: 3500000,
-    monthlyDebtPayment: 18000,
-    lifeInsurancePremium: 24000,
-    healthInsurancePremium: 15000,
-    parentHealthInsurancePremium: 12000,
-    annuityInsurancePremium: 36000,
+    // งบรายจ่าย (รวม 25,000/เดือน)
+    monthlyExpenses: 25000,
+    budgetHousing: 8000,        // ค่าเช่าคอนโด
+    budgetFood: 5500,           // อาหาร 3 มื้อ + กาแฟ
+    budgetTransport: 3500,      // น้ำมัน + ค่าจอด + BTS
+    budgetUtilities: 1500,      // ไฟ น้ำ อินเทอร์เน็ต
+    budgetHealthcare: 800,      // ยา หมอทั่วไป
+    budgetEntertainment: 2000,  // หนัง ท่องเที่ยวเดือนละครั้ง
+    budgetEducation: 0,
+    budgetPersonalCare: 1700,   // ตัดผม เสื้อผ้า ของใช้ส่วนตัว
+    budgetOther: 2000,          // เบ็ดเตล็ด
+    emergencyFundAmount: 150000, // เงินสำรอง 6 เดือน
+    totalDebt: 320000,           // สินเชื่อรถยนต์ คงเหลือ
+    monthlyDebtPayment: 7500,
+    debtInterestRate: 2.8,
+    // ประกัน
+    lifeInsurancePremium: 8400,           // 700/เดือน
+    healthInsurancePremium: 7200,         // 600/เดือน
+    parentHealthInsurancePremium: 6000,   // ประกันสุขภาพพ่อแม่
+    annuityInsurancePremium: 0,
     spouseLifeInsurancePremium: 0,
-    rmfAmount: 96000,
-    ssfAmount: 60000,
-    thaiEsgAmount: 90000,
+    // กองทุน (ลดหย่อนภาษี)
+    rmfAmount: 22000,
+    ssfAmount: 55000,
+    thaiEsgAmount: 0,
     ltfAmount: 0,
-    // Personal portfolio (current market value)
-    goldAmount: 350000,
-    cryptoAmount: 280000,
-    etfAmount: 450000,
-    thaiStockAmount: 180000,
-    foreignStockAmount: 320000,
-    otherInvestAmount: 120000,
+    // พอร์ตส่วนตัว (มูลค่าตลาด)
+    goldAmount: 85000,          // ทองคำแท่ง 1 บาท
+    cryptoAmount: 28000,        // BTC/ETH เล็กน้อย
+    etfAmount: 110000,          // กองทุน SSF/RMF ที่ถือ
+    thaiStockAmount: 52000,     // หุ้นไทยกระจาย 4-5 ตัว
+    foreignStockAmount: 0,
+    otherInvestAmount: 0,
   };
 
   await prisma.financialProfile.upsert({
@@ -254,87 +272,88 @@ async function main() {
     update: demoProfileData,
     create: { userId: demoUser.id, ...demoProfileData },
   });
-  console.log("  ✅ FinancialProfile");
+  console.log("  ✅ FinancialProfile (สมชาย วิถีกลาง — มนุษย์เงินเดือนระดับกลาง)");
 
-  // Risk Assessment
+  // ── Risk Assessment ───────────────────────────────────────────────────────
   await prisma.riskAssessment.upsert({
     where: { userId: demoUser.id },
-    update: {},
+    update: {
+      riskLevel: "moderate",
+      score: 52,
+      answers: { q1: "b", q2: "b", q3: "b", q4: "b", q5: "b", q6: "b", q7: "b", q8: "b" },
+    },
     create: {
       userId: demoUser.id,
       riskLevel: "moderate",
-      score: 58,
-      answers: {
-        q1: "b", q2: "c", q3: "b", q4: "b", q5: "b",
-        q6: "c", q7: "b", q8: "b",
-      },
+      score: 52,
+      answers: { q1: "b", q2: "b", q3: "b", q4: "b", q5: "b", q6: "b", q7: "b", q8: "b" },
     },
   });
-  console.log("  ✅ RiskAssessment (moderate/58)");
+  console.log("  ✅ RiskAssessment (moderate / score 52)");
 
-  // Goals
+  // ── Goals ─────────────────────────────────────────────────────────────────
+  await prisma.goal.deleteMany({ where: { userId: demoUser.id } });
   const goalDefaults = [
     {
       name: "เงินสำรองฉุกเฉิน 6 เดือน",
       goalType: "emergency_fund" as const,
-      targetAmount: 270000,
-      currentAmount: 270000,
+      targetAmount: 150000,
+      currentAmount: 150000,
       targetDate: null,
     },
     {
-      name: "ซื้อบ้านหลังแรก",
+      name: "ดาวน์คอนโด",
       goalType: "home_car" as const,
-      targetAmount: 800000,
-      currentAmount: 220000,
-      targetDate: new Date("2028-12-31"),
+      targetAmount: 350000,   // ดาวน์ 20% คอนโด 1.75 ล้าน
+      currentAmount: 130000,
+      targetDate: new Date("2029-06-30"),
     },
     {
-      name: "ทุนการศึกษาลูก",
-      goalType: "education" as const,
-      targetAmount: 600000,
-      currentAmount: 85000,
-      targetDate: new Date("2035-06-01"),
-    },
-    {
-      name: "เกษียณอายุ 55 ปี",
+      name: "เกษียณอายุ 60 ปี",
       goalType: "retirement" as const,
-      targetAmount: 25000000,
-      currentAmount: 1800000,
-      targetDate: new Date("2044-01-01"),
+      targetAmount: 10800000, // 30,000/เดือน × 30 ปีหลังเกษียณ
+      currentAmount: 275000,  // พอร์ตลงทุนปัจจุบัน
+      targetDate: new Date("2053-12-31"),
     },
   ];
 
   for (const g of goalDefaults) {
-    const existing = await prisma.goal.findFirst({
-      where: { userId: demoUser.id, name: g.name },
-    });
-    if (!existing) {
-      await prisma.goal.create({ data: { userId: demoUser.id, ...g } });
-    }
+    await prisma.goal.create({ data: { userId: demoUser.id, ...g } });
   }
   console.log(`  ✅ ${goalDefaults.length} Goals`);
 
-  // Insurance Data
+  // ── Insurance Data ────────────────────────────────────────────────────────
   await prisma.insuranceData.upsert({
     where: { userId: demoUser.id },
-    update: {},
+    update: {
+      lifeInsurancePremium: 8400,
+      healthInsurancePremium: 7200,
+      parentHealthInsurancePremium: 6000,
+      annuityInsurancePremium: 0,
+      spouseLifeInsurancePremium: 0,
+      lifeCoverageAmount: 2000000,   // คุ้มครองชีวิต 2 ล้าน
+      healthCoveragePerYear: 500000, // สุขภาพ 500,000/ปี
+      hasAccidentInsurance: true,
+      hasCriticalIllness: false,
+      hasDisabilityInsurance: false,
+    },
     create: {
       userId: demoUser.id,
-      lifeInsurancePremium: 24000,
-      healthInsurancePremium: 15000,
-      parentHealthInsurancePremium: 12000,
-      annuityInsurancePremium: 36000,
+      lifeInsurancePremium: 8400,
+      healthInsurancePremium: 7200,
+      parentHealthInsurancePremium: 6000,
+      annuityInsurancePremium: 0,
       spouseLifeInsurancePremium: 0,
-      lifeCoverageAmount: 5000000,
-      healthCoveragePerYear: 1000000,
+      lifeCoverageAmount: 2000000,
+      healthCoveragePerYear: 500000,
       hasAccidentInsurance: true,
-      hasCriticalIllness: true,
+      hasCriticalIllness: false,
       hasDisabilityInsurance: false,
     },
   });
   console.log("  ✅ InsuranceData");
 
-  // AI Settings — default to Ollama (llama3.2) running in Docker
+  // ── AI Settings ───────────────────────────────────────────────────────────
   await prisma.aiSettings.upsert({
     where: { userId: demoUser.id },
     update: {
@@ -342,7 +361,7 @@ async function main() {
       aiProvider: "ollama",
       aiModel: "llama3.2",
       ollamaBaseUrl: "http://ollama:11434",
-      customPrompt: "ให้เน้นเรื่องการวางแผนเกษียณอายุ และการลดหย่อนภาษีอย่างถูกกฎหมาย",
+      customPrompt: "ให้เน้นเรื่องการออมเพื่อเกษียณ การลดหย่อนภาษี และการบริหารงบประมาณรายเดือน",
     },
     create: {
       userId: demoUser.id,
@@ -350,32 +369,32 @@ async function main() {
       aiProvider: "ollama",
       aiModel: "llama3.2",
       ollamaBaseUrl: "http://ollama:11434",
-      customPrompt: "ให้เน้นเรื่องการวางแผนเกษียณอายุ และการลดหย่อนภาษีอย่างถูกกฎหมาย",
+      customPrompt: "ให้เน้นเรื่องการออมเพื่อเกษียณ การลดหย่อนภาษี และการบริหารงบประมาณรายเดือน",
     },
   });
-  console.log("  ✅ AiSettings (Ollama / llama3.2 @ http://ollama:11434)");
+  console.log("  ✅ AiSettings");
 
-  // Financial Plan
+  // ── Financial Plan ────────────────────────────────────────────────────────
   const demoPlanData = {
-    currentAge: 34,
-    maritalStatus: "married",
-    numChildrenPlan: 1,
-    retirementAge: 55,
-    monthlyRetirementNeeds: 70000,
+    currentAge: 32,
+    maritalStatus: "single",
+    numChildrenPlan: 0,
+    retirementAge: 60,
+    monthlyRetirementNeeds: 30000,  // ใช้ชีวิตสบายๆ 30,000/เดือน
     hasHomeGoal: true,
     homePurchaseYears: 3,
-    homeBudget: 4000000,
+    homeBudget: 1750000,
     hasCarGoal: false,
-    carPurchaseYears: 2,
-    carBudget: 800000,
-    hasEducationGoal: true,
-    educationYears: 15,
-    educationBudget: 600000,
+    carPurchaseYears: 0,
+    carBudget: 0,
+    hasEducationGoal: false,
+    educationYears: 0,
+    educationBudget: 0,
     emergencyFundMonths: 6,
-    monthlyInvestable: 45000,
-    currentSavings: 1800000,
-    expectedReturn: 7.5,
-    inflationRate: 3,
+    monthlyInvestable: 12000,  // ออมได้จริงๆ ≈ 12,000/เดือน
+    currentSavings: 275000,
+    expectedReturn: 6.5,
+    inflationRate: 3.0,
     targetWealthOverride: null,
   };
 
@@ -386,32 +405,35 @@ async function main() {
   });
   console.log("  ✅ FinancialPlan");
 
-  // Tax Result (2025)
+  // ── Tax Result (2025) ─────────────────────────────────────────────────────
+  // รายได้รวม: 550,000 + 30,000 = 580,000
+  // ลดหย่อน: ค่าใช้จ่าย 100,000 + ส่วนตัว 60,000 + บิดามารดา 60,000
+  //           SSF 55,000 + RMF 22,000 + ประกันชีวิต 8,400 + ประกันสุขภาพ 7,200
+  //           ประกันสุขภาพบิดามารดา 6,000 + ประกันสังคม 9,000 + PVD 27,500
+  //           รวมลดหย่อน = 355,100
+  // เงินได้สุทธิ = 580,000 - 355,100 = 224,900
+  // ภาษี: 150,000 แรก = 0 | 74,900 × 5% = 3,745
+  // หักภาษี ณ ที่จ่าย 30,000 → ได้คืน 26,255
+
   const taxYear2025 = await prisma.taxYear.findUnique({ where: { year: 2025 } });
   if (taxYear2025) {
-    const existing = await prisma.taxResult.findFirst({
-      where: { userId: demoUser.id, taxYearId: taxYear2025.id },
+    await prisma.taxResult.deleteMany({ where: { userId: demoUser.id, taxYearId: taxYear2025.id } });
+    await prisma.taxResult.create({
+      data: {
+        userId: demoUser.id,
+        taxYearId: taxYear2025.id,
+        totalIncome: 580000,
+        totalDeductions: 355100,
+        netIncome: 224900,
+        taxOwed: 3745,
+        withheldTax: 30000,
+        taxRefund: 26255,    // บวก = ได้คืน
+        effectiveRate: 0.65, // 3,745 / 580,000
+        marginalRate: 5,
+        inputSnapshot: {},
+      },
     });
-    if (!existing) {
-      await prisma.taxResult.create({
-        data: {
-          userId: demoUser.id,
-          taxYearId: taxYear2025.id,
-          totalIncome: 1380000,
-          totalDeductions: 487000,
-          netIncome: 893000,
-          taxOwed: 118000,
-          withheldTax: 95000,
-          taxRefund: -23000,
-          effectiveRate: 8.55,
-          marginalRate: 20,
-          inputSnapshot: {},
-        },
-      });
-      console.log("  ✅ TaxResult (2025) — ต้องจ่ายเพิ่ม ฿23,000");
-    } else {
-      console.log("  ⏭  TaxResult (2025) already exists — skipped");
-    }
+    console.log("  ✅ TaxResult (2025) — ได้ภาษีคืน ฿26,255");
   }
 
   // ─── Instrument Catalog ─────────────────────────────────────────────────────
